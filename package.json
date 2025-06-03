@@ -1,0 +1,27 @@
+{
+  "name": "comfyui-express-middleware",
+  "version": "1.0.0",
+  "description": "Express middleware for ComfyUI API",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "ws": "^8.18.0",
+    "axios": "^1.7.2",
+    "uuid": "^9.0.1",
+    "dotenv": "^16.4.5"
+  },
+  "keywords": [
+    "comfyui",
+    "express",
+    "middleware",
+    "api"
+  ],
+  "author": "",
+  "license": "ISC"
+}
