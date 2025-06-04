@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs').promises;
 const path = require('path');
 const { getLoadBalancer } = require('./loadBalancer');
+const { getConnectionManager } = require('./connectionManager');
 
 /**
  * Executes a ComfyUI workflow with a base64 image input
@@ -98,17 +99,24 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
     throw new Error('ComfyUI prompt request failed');
   }
   
-  // Monitor execution via WebSocket
-  return new Promise((resolve, reject) => {
-    console.log(`Attempting to connect to WebSocket: ${comfyWsUrl}`);
+  // Monitor execution via pooled WebSocket connection
+  return new Promise(async (resolve, reject) => {
+    console.log(`Getting pooled WebSocket connection for: ${comfyHost}`);
     
-    const ws = new WebSocket(comfyWsUrl);
+    const connectionManager = getConnectionManager();
+    let pooledConnection = null;
     let resolved = false;
     let executionCompleted = false;
+    let cleanupMessageHandler = () => {}; // Will be defined later
     
-    // Ensure we always decrement active jobs
+    // Ensure we always clean up
     const cleanup = () => {
+      cleanupMessageHandler();
       loadBalancer.decrementActiveJobs(comfyHost);
+      if (pooledConnection) {
+        connectionManager.releaseConnection(pooledConnection);
+        pooledConnection = null;
+      }
     };
     
     const resolveWithCleanup = (result) => {
@@ -120,54 +128,41 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
       cleanup();
       reject(error);
     };
+
+    // Get connection from pool
+    try {
+      pooledConnection = await connectionManager.getConnection(comfyHost);
+      console.log(`✅ Acquired pooled connection ${pooledConnection.id} for ${comfyHost}`);
+    } catch (error) {
+      console.error(`Failed to get pooled connection for ${comfyHost}:`, error.message);
+      rejectWithCleanup(new Error(`Failed to get WebSocket connection: ${error.message}`));
+      return;
+    }
     
     // Set up timeout
     const timeoutDuration = 60000; // 60 seconds
     const timeoutId = setTimeout(() => {
       if (!resolved) {
         console.error('ComfyUI execution timed out');
-        ws.close();
         rejectWithCleanup(new Error('ComfyUI execution timed out'));
         resolved = true;
       }
     }, timeoutDuration);
-    
-    ws.on('open', () => {
-      console.log('WebSocket connection established with ComfyUI');
-    });
-    
-    ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
-      clearTimeout(timeoutId);
-      ws.close();
-      if (!resolved) {
-        // Mark instance as unhealthy on connection error
-        loadBalancer.markUnhealthy(comfyHost);
-        console.error(`Marked instance ${comfyHost} as unhealthy due to WebSocket error`);
-        rejectWithCleanup(new Error('ComfyUI WebSocket connection error'));
-        resolved = true;
-      }
-    });
-    
-    ws.on('close', (code, reason) => {
-      console.log(`WebSocket connection closed. Code: ${code}, Reason: ${reason.toString()}`);
-      clearTimeout(timeoutId);
-      
-      // If execution completed, fetch the results
+
+    // If execution completed, fetch the results
+    const fetchResultsHandler = () => {
       if (executionCompleted && !resolved) {
         fetchResults();
-      } else if (!resolved) {
-        rejectWithCleanup(new Error(`WebSocket closed unexpectedly: ${reason}`));
-        resolved = true;
       }
-    });
+    };
     
     // Track cached vs fresh execution for debugging
     const cachedNodes = new Set();
     const processingNodes = new Set();
     let executionStartTime = Date.now();
 
-    ws.on('message', async (data) => {
+    // Set up message handler for this execution
+    const messageHandler = async (data) => {
       try {
         const message = JSON.parse(data.toString());
         const timestamp = Date.now() - executionStartTime;
@@ -246,7 +241,7 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
               console.log(`⚡ CACHED COMPLETION - Fetching results for prompt ${promptId}`);
               executionCompleted = true;
               clearTimeout(timeoutId); // Cancel the timeout
-              ws.close(); // This will trigger fetchResults
+              fetchResultsHandler(); // Trigger result fetching
             }
           }
         }
@@ -264,8 +259,24 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
           console.log('⚠️  Failed to parse WebSocket message:', parseError.message);
         }
       }
-    });
-    
+    };
+
+    // Validate connection before use
+    if (!pooledConnection.isConnected) {
+      rejectWithCleanup(new Error(`Connection ${pooledConnection.id} is not ready for execution`));
+      return;
+    }
+
+    // Set up message handler on the pooled connection
+    pooledConnection.onMessage(messageHandler);
+
+    // Update the cleanup function
+    cleanupMessageHandler = () => {
+      if (pooledConnection) {
+        pooledConnection.offMessage(messageHandler);
+      }
+    };
+
     // Function to fetch results from history
     async function fetchResults() {
       try {
