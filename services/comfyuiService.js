@@ -3,6 +3,7 @@ const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs').promises;
 const path = require('path');
+const { getLoadBalancer } = require('./loadBalancer');
 
 /**
  * Executes a ComfyUI workflow with a base64 image input
@@ -41,13 +42,31 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
     console.log('Warning: No InputImageBase64 node found in workflow');
   }
   
-  // Define ComfyUI connection parameters
-  const comfyHost = process.env.COMFYUI_HOST || '192.168.1.19:8188';
+  // Get load balancer and select an instance
+  const loadBalancer = getLoadBalancer();
+  
+  // Log current load balancer status
+  console.log('Current load balancer status:', loadBalancer.getInstancesStatus());
+  
+  const instance = await loadBalancer.getAvailableInstance();
+  
+  if (!instance) {
+    throw new Error('No healthy ComfyUI instances available');
+  }
+  
+  console.log(`Selected instance ${instance.id} (${instance.host}) for new job`);
+  
+  // Define ComfyUI connection parameters for selected instance
+  const comfyHost = instance.host;
   const useSSL = process.env.COMFYUI_USE_SSL === 'true';
   const httpProtocol = useSSL ? 'https' : 'http';
   const wsProtocol = useSSL ? 'wss' : 'ws';
   const comfyUrl = `${httpProtocol}://${comfyHost}`;
   const comfyWsUrl = `${wsProtocol}://${comfyHost}/ws?clientId=${clientId}`;
+  
+  // Increment active jobs for this instance
+  loadBalancer.incrementActiveJobs(comfyHost);
+  console.log('Updated load balancer status after increment:', loadBalancer.getInstancesStatus());
   
   // Construct prompt payload
   const payload = {
@@ -67,6 +86,15 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
     if (error.response) {
       console.error('Response data:', error.response.data);
     }
+    // Decrement active jobs on failure
+    loadBalancer.decrementActiveJobs(comfyHost);
+    
+    // Mark instance as unhealthy if connection refused or timeout
+    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND') {
+      loadBalancer.markUnhealthy(comfyHost);
+      console.error(`Marked instance ${comfyHost} as unhealthy due to connection error: ${error.code}`);
+    }
+    
     throw new Error('ComfyUI prompt request failed');
   }
   
@@ -78,13 +106,28 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
     let resolved = false;
     let executionCompleted = false;
     
+    // Ensure we always decrement active jobs
+    const cleanup = () => {
+      loadBalancer.decrementActiveJobs(comfyHost);
+    };
+    
+    const resolveWithCleanup = (result) => {
+      cleanup();
+      resolve(result);
+    };
+    
+    const rejectWithCleanup = (error) => {
+      cleanup();
+      reject(error);
+    };
+    
     // Set up timeout
     const timeoutDuration = 60000; // 60 seconds
     const timeoutId = setTimeout(() => {
       if (!resolved) {
         console.error('ComfyUI execution timed out');
         ws.close();
-        reject(new Error('ComfyUI execution timed out'));
+        rejectWithCleanup(new Error('ComfyUI execution timed out'));
         resolved = true;
       }
     }, timeoutDuration);
@@ -98,7 +141,10 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
       clearTimeout(timeoutId);
       ws.close();
       if (!resolved) {
-        reject(new Error('ComfyUI WebSocket connection error'));
+        // Mark instance as unhealthy on connection error
+        loadBalancer.markUnhealthy(comfyHost);
+        console.error(`Marked instance ${comfyHost} as unhealthy due to WebSocket error`);
+        rejectWithCleanup(new Error('ComfyUI WebSocket connection error'));
         resolved = true;
       }
     });
@@ -111,7 +157,7 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
       if (executionCompleted && !resolved) {
         fetchResults();
       } else if (!resolved) {
-        reject(new Error(`WebSocket closed unexpectedly: ${reason}`));
+        rejectWithCleanup(new Error(`WebSocket closed unexpectedly: ${reason}`));
         resolved = true;
       }
     });
@@ -140,7 +186,7 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
           clearTimeout(timeoutId);
           ws.close();
           if (!resolved) {
-            reject(new Error(`ComfyUI execution error: ${JSON.stringify(message.data)}`));
+            rejectWithCleanup(new Error(`ComfyUI execution error: ${JSON.stringify(message.data)}`));
             resolved = true;
           }
         }
@@ -227,14 +273,14 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
         }
         
         clearTimeout(timeoutId);
-        resolve({ base64: base64Image, promptId });
+        resolveWithCleanup({ base64: base64Image, promptId });
         resolved = true;
         
       } catch (error) {
         console.error('Failed to fetch results:', error.message);
         clearTimeout(timeoutId);
         if (!resolved) {
-          reject(new Error(`Failed to fetch results: ${error.message}`));
+          rejectWithCleanup(new Error(`Failed to fetch results: ${error.message}`));
           resolved = true;
         }
       }
