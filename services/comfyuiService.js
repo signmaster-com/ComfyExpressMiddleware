@@ -162,27 +162,68 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
       }
     });
     
+    // Track cached vs fresh execution for debugging
+    const cachedNodes = new Set();
+    const processingNodes = new Set();
+    let executionStartTime = Date.now();
+
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
-        console.log('Received WebSocket message:', {
+        const timestamp = Date.now() - executionStartTime;
+        
+        // Enhanced logging for all message types
+        console.log(`[${timestamp}ms] WebSocket message:`, {
           type: message.type,
-          ...(message.data && message.data.node ? { node: message.data.node } : {}),
-          ...(message.data && message.data.prompt_id ? { prompt_id: message.data.prompt_id } : {})
+          data: message.data
         });
         
-        // Check for execution completion
-        if (message.type === 'executing' && message.data) {
-          if (message.data.prompt_id === promptId && message.data.node === null) {
-            console.log('Workflow execution completed!');
-            executionCompleted = true;
-            ws.close(); // This will trigger the close event which will fetch results
+        // Handle different message types based on ComfyUI execution flow
+        if (message.type === 'execution_cached' && message.data) {
+          // Track which nodes will be served from cache
+          if (message.data.nodes && message.data.prompt_id === promptId) {
+            message.data.nodes.forEach(nodeId => cachedNodes.add(nodeId));
+            console.log(`📦 CACHED NODES for prompt ${promptId}:`, Array.from(cachedNodes));
           }
         }
         
-        // Check for execution errors
-        if (message.type === 'execution_error' && message.data) {
-          console.error('Execution error:', message.data);
+        else if (message.type === 'executing' && message.data) {
+          if (message.data.prompt_id === promptId) {
+            if (message.data.node === null) {
+              // Execution completion signal
+              console.log('🏁 WORKFLOW EXECUTION COMPLETED!');
+              console.log(`📊 Execution Summary for prompt ${promptId}:`);
+              console.log(`   Cached nodes: ${cachedNodes.size} - ${Array.from(cachedNodes)}`);
+              console.log(`   Processed nodes: ${processingNodes.size} - ${Array.from(processingNodes)}`);
+              console.log(`   Was fully cached: ${processingNodes.size === 0}`);
+              console.log(`   Total execution time: ${timestamp}ms`);
+              
+              executionCompleted = true;
+              ws.close(); // This will trigger the close event which will fetch results
+            } else {
+              // Node is being actively processed (not cached)
+              processingNodes.add(message.data.node);
+              console.log(`⚙️  PROCESSING NODE: ${message.data.node} (fresh execution)`);
+            }
+          }
+        }
+        
+        else if (message.type === 'executed' && message.data) {
+          // Node execution completed (both cached and fresh nodes send this)
+          if (message.data.prompt_id === promptId && message.data.node) {
+            const nodeId = message.data.node;
+            if (cachedNodes.has(nodeId)) {
+              console.log(`✅ NODE ${nodeId}: SERVED FROM CACHE`);
+            } else if (processingNodes.has(nodeId)) {
+              console.log(`🔥 NODE ${nodeId}: FRESHLY PROCESSED`);
+            } else {
+              console.log(`❓ NODE ${nodeId}: UNKNOWN STATUS (neither cached nor tracked as processing)`);
+            }
+          }
+        }
+        
+        else if (message.type === 'execution_error' && message.data) {
+          console.error('💥 EXECUTION ERROR:', message.data);
           clearTimeout(timeoutId);
           ws.close();
           if (!resolved) {
@@ -190,10 +231,37 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
             resolved = true;
           }
         }
+        
+        else if (message.type === 'status' && message.data) {
+          // Status message - important for detecting cached job completion
+          console.log(`📊 STATUS MESSAGE:`, message.data);
+          
+          // For cached jobs, ComfyUI may only send status messages
+          // Check if queue is empty, which could indicate our job completed from cache
+          if (message.data.status && message.data.status.exec_info && message.data.status.exec_info.queue_remaining === 0) {
+            console.log(`🏁 CACHED JOB COMPLETION DETECTED - Queue empty, job completed from cache!`);
+            
+            // Immediately mark as completed since cached jobs don't send normal execution messages
+            if (!resolved && !executionCompleted) {
+              console.log(`⚡ CACHED COMPLETION - Fetching results for prompt ${promptId}`);
+              executionCompleted = true;
+              clearTimeout(timeoutId); // Cancel the timeout
+              ws.close(); // This will trigger fetchResults
+            }
+          }
+        }
+        
+        else {
+          // Log any other message types we haven't specifically handled
+          console.log(`📨 OTHER MESSAGE TYPE: ${message.type}`, message.data);
+        }
+        
       } catch (parseError) {
         // Ignore non-JSON messages (binary preview data)
         if (Buffer.isBuffer(data)) {
-          console.log(`Received binary data of size: ${data.length} bytes (preview image, ignoring)`);
+          console.log(`📸 Received binary data of size: ${data.length} bytes (preview image, ignoring)`);
+        } else {
+          console.log('⚠️  Failed to parse WebSocket message:', parseError.message);
         }
       }
     });

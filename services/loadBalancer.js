@@ -1,4 +1,4 @@
-const axios = require('axios');
+const InstanceHealthChecker = require('./healthChecker');
 
 /**
  * Load balancer for multiple ComfyUI instances
@@ -10,35 +10,37 @@ class ComfyUILoadBalancer {
     const host1 = process.env.COMFYUI_HOST_1 || '192.168.1.19:8188';
     const host2 = process.env.COMFYUI_HOST_2 || '192.168.1.19:8189';
     
-    this.instances = [
-      {
-        id: 'instance-1',
-        host: host1,
-        healthy: false, // Start as unhealthy until verified
-        activeJobs: 0,
-        lastHealthCheck: null,
-        consecutiveFailures: 0
-      },
-      {
-        id: 'instance-2',
-        host: host2,
-        healthy: false, // Start as unhealthy until verified
-        activeJobs: 0,
-        lastHealthCheck: null,
-        consecutiveFailures: 0
-      }
-    ];
+    this.instances = new Map();
     
     // SSL configuration
     this.useSSL = process.env.COMFYUI_USE_SSL === 'true';
-    this.httpProtocol = this.useSSL ? 'https' : 'http';
+    this.protocol = this.useSSL ? 'https' : 'http';
+    
+    // Initialize health checker
+    this.healthChecker = new InstanceHealthChecker();
+    
+    // Register instances
+    const instances = [
+      { id: 'instance-1', host: host1, protocol: this.protocol },
+      { id: 'instance-2', host: host2, protocol: this.protocol }
+    ];
+    
+    instances.forEach(instance => {
+      this.instances.set(instance.id, {
+        ...instance,
+        activeJobs: 0
+      });
+      this.healthChecker.registerInstance(instance);
+    });
     
     console.log('ComfyUI Load Balancer initialized with instances:', 
-      this.instances.map(i => ({ id: i.id, host: i.host }))
+      Array.from(this.instances.values()).map(i => ({ id: i.id, host: i.host }))
     );
     
-    this.healthCheckInterval = null;
     this.initialHealthCheckComplete = false;
+    
+    // Start health checks automatically
+    this.healthChecker.startHealthChecks(30000); // 30 seconds
   }
   
   /**
@@ -49,21 +51,34 @@ class ComfyUILoadBalancer {
     // If initial health check hasn't completed, do it now
     if (!this.initialHealthCheckComplete) {
       console.log('Performing initial health check before job assignment...');
-      await this.performHealthChecks();
+      await this.healthChecker.performHealthChecks();
       this.initialHealthCheckComplete = true;
     }
     
-    // Filter healthy instances
-    const healthyInstances = this.instances.filter(instance => instance.healthy);
+    // Get healthy instances from health checker
+    const healthyInstanceIds = this.healthChecker.getHealthyInstances().map(i => i.id);
     
-    if (healthyInstances.length === 0) {
+    if (healthyInstanceIds.length === 0) {
       console.error('No healthy ComfyUI instances available');
       return null;
     }
     
-    // Sort by active jobs (ascending) to get least loaded
-    const sortedInstances = healthyInstances.sort((a, b) => a.activeJobs - b.activeJobs);
-    const selectedInstance = sortedInstances[0];
+    // Get full instance objects and sort by active jobs
+    const healthyInstances = healthyInstanceIds
+      .map(id => this.instances.get(id))
+      .filter(Boolean)
+      .sort((a, b) => a.activeJobs - b.activeJobs);
+    
+    const selectedInstance = healthyInstances[0];
+    
+    // Perform health check before job submission
+    const isHealthy = await this.healthChecker.checkBeforeJob(selectedInstance.id);
+    if (!isHealthy) {
+      console.warn(`Instance ${selectedInstance.id} failed pre-job health check, retrying with next instance...`);
+      // Remove this instance from the list and try again
+      healthyInstances.shift();
+      return healthyInstances.length > 0 ? healthyInstances[0] : null;
+    }
     
     console.log(`Selected instance ${selectedInstance.id} (${selectedInstance.host}) with ${selectedInstance.activeJobs} active jobs`);
     return selectedInstance;
@@ -75,7 +90,12 @@ class ComfyUILoadBalancer {
    * @returns {Object|null} The instance or null if not found
    */
   getInstanceByHost(host) {
-    return this.instances.find(instance => instance.host === host) || null;
+    for (const instance of this.instances.values()) {
+      if (instance.host === host) {
+        return instance;
+      }
+    }
+    return null;
   }
   
   /**
@@ -103,49 +123,13 @@ class ComfyUILoadBalancer {
   }
   
   /**
-   * Mark an instance as healthy
-   * @param {string} host - The host string
-   */
-  markHealthy(host) {
-    const instance = this.getInstanceByHost(host);
-    if (instance && !instance.healthy) {
-      instance.healthy = true;
-      instance.consecutiveFailures = 0;
-      console.log(`Instance ${instance.id} (${host}) marked as healthy`);
-    }
-  }
-  
-  /**
-   * Mark an instance as unhealthy
+   * Mark an instance as unhealthy (called by comfyuiService on connection errors)
    * @param {string} host - The host string
    */
   markUnhealthy(host) {
     const instance = this.getInstanceByHost(host);
-    if (instance && instance.healthy) {
-      instance.healthy = false;
-      console.warn(`Instance ${instance.id} (${host}) marked as unhealthy`);
-    }
-  }
-  
-  /**
-   * Update instance health check status
-   * @param {string} host - The host string
-   * @param {boolean} success - Whether the health check succeeded
-   */
-  updateHealthCheck(host, success) {
-    const instance = this.getInstanceByHost(host);
-    if (!instance) return;
-    
-    instance.lastHealthCheck = new Date().toISOString();
-    
-    if (success) {
-      instance.consecutiveFailures = 0;
-      if (!instance.healthy) {
-        this.markHealthy(host);
-      }
-    } else {
-      instance.consecutiveFailures++;
-      console.warn(`Instance ${instance.id} (${host}) health check failed. Consecutive failures: ${instance.consecutiveFailures}`);
+    if (instance) {
+      this.healthChecker.markUnhealthy(instance.id);
     }
   }
   
@@ -154,14 +138,14 @@ class ComfyUILoadBalancer {
    * @returns {Array} Array of instance status objects
    */
   getInstancesStatus() {
-    return this.instances.map(instance => ({
-      id: instance.id,
-      host: instance.host,
-      healthy: instance.healthy,
-      activeJobs: instance.activeJobs,
-      lastHealthCheck: instance.lastHealthCheck,
-      consecutiveFailures: instance.consecutiveFailures
-    }));
+    const healthStatus = this.healthChecker.getInstancesStatus();
+    return healthStatus.map(status => {
+      const instance = this.instances.get(status.id);
+      return {
+        ...status,
+        activeJobs: instance ? instance.activeJobs : 0
+      };
+    });
   }
   
   /**
@@ -169,7 +153,7 @@ class ComfyUILoadBalancer {
    * @returns {boolean} True if at least one healthy instance exists
    */
   hasAvailableInstance() {
-    return this.instances.some(instance => instance.healthy);
+    return this.healthChecker.getHealthyInstances().length > 0;
   }
   
   /**
@@ -177,74 +161,18 @@ class ComfyUILoadBalancer {
    * @returns {number} Total active jobs
    */
   getTotalActiveJobs() {
-    return this.instances.reduce((total, instance) => total + instance.activeJobs, 0);
-  }
-  
-  /**
-   * Perform health check on a specific instance
-   * @param {Object} instance - The instance to check
-   * @returns {Promise<boolean>} True if healthy, false otherwise
-   */
-  async checkInstanceHealth(instance) {
-    try {
-      console.log(`Health check for instance ${instance.id} (${instance.host})`);
-      const url = `${this.httpProtocol}://${instance.host}/system_stats`;
-      const response = await axios.get(url, {
-        timeout: 300 // 300ms timeout
-      });
-      
-      if (response.status === 200) {
-        this.updateHealthCheck(instance.host, true);
-        return true;
-      }
-    } catch (error) {
-      console.error(`Health check failed for instance ${instance.id} (${instance.host}):`, error.message);
-      this.updateHealthCheck(instance.host, false);
-      
-      // Mark unhealthy after 3 consecutive failures
-      if (instance.consecutiveFailures >= 3) {
-        this.markUnhealthy(instance.host);
-      }
+    let total = 0;
+    for (const instance of this.instances.values()) {
+      total += instance.activeJobs;
     }
-    return false;
+    return total;
   }
   
   /**
-   * Perform health checks on all instances
-   * @returns {Promise<void>}
-   */
-  async performHealthChecks() {
-    console.log('Performing health checks on all instances...');
-    const checks = this.instances.map(instance => this.checkInstanceHealth(instance));
-    await Promise.all(checks);
-    console.log('Health checks complete. Status:', this.getInstancesStatus());
-  }
-  
-  /**
-   * Start periodic health checks
-   * @param {number} intervalMs - Interval in milliseconds (default: 10000)
-   */
-  startHealthChecks(intervalMs = 10000) {
-    console.log(`Starting health checks every ${intervalMs}ms`);
-    
-    // Perform initial health check
-    this.performHealthChecks();
-    
-    // Set up periodic checks
-    this.healthCheckInterval = setInterval(() => {
-      this.performHealthChecks();
-    }, intervalMs);
-  }
-  
-  /**
-   * Stop periodic health checks
+   * Stop health checks (cleanup)
    */
   stopHealthChecks() {
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-      this.healthCheckInterval = null;
-      console.log('Health checks stopped');
-    }
+    this.healthChecker.stopHealthChecks();
   }
 }
 
@@ -258,8 +186,6 @@ let loadBalancerInstance = null;
 function getLoadBalancer() {
   if (!loadBalancerInstance) {
     loadBalancerInstance = new ComfyUILoadBalancer();
-    // Start automatic health checks
-    loadBalancerInstance.startHealthChecks();
   }
   return loadBalancerInstance;
 }
