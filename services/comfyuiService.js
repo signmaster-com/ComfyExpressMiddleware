@@ -5,16 +5,18 @@ const fs = require('fs').promises;
 const path = require('path');
 const { getLoadBalancer } = require('./loadBalancer');
 const { getConnectionManager } = require('./connectionManager');
+const { getJobManager } = require('./jobManager');
 
 /**
  * Executes a ComfyUI workflow with a base64 image input
  * @param {Object} workflowJson - The workflow JSON object
  * @param {string} imageBase64 - The base64 encoded image string
  * @param {string} nodeId - The node ID to get results from (optional)
- * @returns {Promise<{base64: string, promptId: string}>} Promise that resolves with the base64 encoded output image and prompt ID
+ * @param {string} jobType - Type of job for tracking (optional)
+ * @returns {Promise<{base64: string, promptId: string, jobId: string}>} Promise that resolves with the base64 encoded output image, prompt ID, and job ID
  */
-async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
-  console.log(`Starting workflow execution`);
+async function executeWorkflow(workflowJson, imageBase64, nodeId = null, jobType = 'workflow') {
+  console.log(`Starting workflow execution (job type: ${jobType})`);
   
   // Generate unique client ID
   const clientId = uuidv4();
@@ -57,6 +59,15 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
   
   console.log(`Selected instance ${instance.id} (${instance.host}) for new job`);
   
+  // Create job for tracking
+  const jobManager = getJobManager();
+  const jobId = jobManager.createJob(jobType, {
+    clientId: clientId,
+    workflowType: jobType,
+    imageSize: imageBase64.length,
+    targetNodeId: nodeId
+  }, instance.host);
+  
   // Define ComfyUI connection parameters for selected instance
   const comfyHost = instance.host;
   const useSSL = process.env.COMFYUI_USE_SSL === 'true';
@@ -82,11 +93,24 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
     const response = await axios.post(`${comfyUrl}/prompt`, payload);
     promptId = response.data.prompt_id;
     console.log(`Prompt submitted successfully. Prompt ID: ${promptId}`);
+    
+    // Update job status to processing
+    jobManager.updateJobStatus(jobId, jobManager.JOB_STATES.PROCESSING, {
+      promptId: promptId,
+      submittedTime: Date.now()
+    });
   } catch (error) {
     console.error('ComfyUI prompt request failed:', error.message);
     if (error.response) {
       console.error('Response data:', error.response.data);
     }
+    
+    // Update job status to failed
+    jobManager.updateJobStatus(jobId, jobManager.JOB_STATES.FAILED, {
+      error: error.message,
+      errorDetails: error.response?.data
+    });
+    
     // Decrement active jobs on failure
     loadBalancer.decrementActiveJobs(comfyHost);
     
@@ -120,11 +144,21 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null) {
     };
     
     const resolveWithCleanup = (result) => {
+      // Update job status to completed
+      jobManager.updateJobStatus(jobId, jobManager.JOB_STATES.COMPLETED, {
+        result: result,
+        completedTime: Date.now()
+      });
       cleanup();
-      resolve(result);
+      resolve({ ...result, jobId });
     };
     
     const rejectWithCleanup = (error) => {
+      // Update job status to failed
+      jobManager.updateJobStatus(jobId, jobManager.JOB_STATES.FAILED, {
+        error: error.message,
+        failedTime: Date.now()
+      });
       cleanup();
       reject(error);
     };

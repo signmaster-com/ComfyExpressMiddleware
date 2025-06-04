@@ -1,13 +1,22 @@
 const { fileBufferToBase64 } = require('../utils/imageUtils.js');
 const { executeWorkflow } = require('../services/comfyuiService.js');
 const { getUpscaleImageWorkflow } = require('../workflows.js');
+const { handleUpscaleImageAsync } = require('./asyncJobHandler');
 
 /**
  * Express route handler for upscaling images
+ * Supports both synchronous and asynchronous modes
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
 async function handleUpscaleImage(req, res) {
+  // Check for async mode via query parameter
+  const isAsync = req.query.async === 'true' || req.query.mode === 'async';
+  
+  if (isAsync) {
+    return handleUpscaleImageAsync(req, res);
+  }
+  
   // Check if file exists
   if (!req.file) {
     return res.status(400).json({ error: 'No image file provided.' });
@@ -31,10 +40,11 @@ async function handleUpscaleImage(req, res) {
     
     // Execute the workflow
     try {
-      const result = await executeWorkflow(workflow, imageBase64, '10');
+      const result = await executeWorkflow(workflow, imageBase64, '10', 'upscale-image');
       return res.status(200).json({ 
         imageBase64: result.base64,
-        promptId: result.promptId 
+        promptId: result.promptId,
+        jobId: result.jobId
       });
     } catch (workflowError) {
       console.error('Failed to upscale image:', workflowError);
