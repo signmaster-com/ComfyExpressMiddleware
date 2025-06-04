@@ -1,5 +1,6 @@
 const app = require('./app.js');
 const dotenv = require('dotenv');
+const { createServiceLogger } = require('./utils/logger.js');
 const { getConnectionManager } = require('./services/connectionManager.js');
 const { getJobManager } = require('./services/jobManager.js');
 const { getJobProcessor } = require('./services/jobProcessor.js');
@@ -7,6 +8,9 @@ const { getMetrics } = require('./services/metrics.js');
 
 // Load environment variables from .env file
 dotenv.config();
+
+// Create server logger
+const serverLogger = createServiceLogger('server');
 
 // Define the port
 const PORT = process.env.PORT || 3000;
@@ -19,11 +23,16 @@ const metrics = getMetrics();
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`Middleware API server running on port ${PORT}`);
-  console.log(`ComfyUI should be accessible at: ${process.env.COMFYUI_HOST || '192.168.1.19:8188'}`);
-  console.log(`WebSocket Connection Pooling: Max ${process.env.MAX_CONNECTIONS_PER_INSTANCE || 3} connections per instance`);
-  console.log(`Job Management: Timeout ${process.env.JOB_TIMEOUT || 300000}ms (${(process.env.JOB_TIMEOUT || 300000) / 1000}s)`);
-  console.log(`Job Processing: Max ${process.env.MAX_CONCURRENT_JOBS || 4} concurrent jobs, ${process.env.MAX_JOBS_PER_INSTANCE || 2} per instance`);
+  serverLogger.info('Server started successfully', {
+    port: PORT,
+    comfyuiHost: process.env.COMFYUI_HOST || '192.168.1.19:8188',
+    maxConnectionsPerInstance: process.env.MAX_CONNECTIONS_PER_INSTANCE || 3,
+    jobTimeout: process.env.JOB_TIMEOUT || 300000,
+    maxConcurrentJobs: process.env.MAX_CONCURRENT_JOBS || 4,
+    maxJobsPerInstance: process.env.MAX_JOBS_PER_INSTANCE || 2,
+    logLevel: process.env.LOG_LEVEL || 'info',
+    outputFiles: process.env.OUTPUT_FILES === 'true'
+  });
   
   // Start the job processor
   jobProcessor.start();

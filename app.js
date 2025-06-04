@@ -1,5 +1,7 @@
 const express = require('express');
 const multer = require('multer');
+const { requestLoggerMiddleware } = require('./middleware/requestLogger.js');
+const { logger } = require('./utils/logger.js');
 const { handleRemoveBackground } = require('./routes/removeBackgroundHandler.js');
 const { handleUpscaleImage } = require('./routes/upscaleImageHandler.js');
 const { 
@@ -41,6 +43,7 @@ const upload = multer({
 
 // Middleware
 app.use(express.json());
+app.use(requestLoggerMiddleware);
 
 // Routes - Processing endpoints (with backward compatibility)
 app.post('/api/remove-background', upload.single('imageFile'), handleRemoveBackground);
@@ -76,11 +79,24 @@ app.get('/api/metrics/instances/:instance', getInstanceMetrics);
 app.post('/api/metrics/save', forceSaveMetrics);
 app.get('/api/metrics/persistence', getMetricsPersistenceStatus);
 
-// Basic global error handler
+// Enhanced global error handler with structured logging
 app.use((err, req, res, next) => {
-  console.error('Global error handler:', err.stack);
+  const requestLogger = req.logger || logger;
+  
+  requestLogger.error('Unhandled error in request processing', {
+    error: err.message,
+    stack: err.stack,
+    url: req.url,
+    method: req.method,
+    headers: req.headers,
+    body: req.method !== 'GET' && req.body ? req.body : undefined
+  });
+  
   if (!res.headersSent) {
-    res.status(500).send({ error: 'Something went wrong!' });
+    res.status(500).json({ 
+      error: 'Internal server error',
+      requestId: req.requestId || 'unknown'
+    });
   }
 });
 

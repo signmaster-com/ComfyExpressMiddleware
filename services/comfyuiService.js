@@ -383,7 +383,7 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null, jobType
         
         // Save file if OUTPUT_FILES is enabled
         if (process.env.OUTPUT_FILES === 'true') {
-          const outputDir = path.join(process.cwd(), 'outputs', promptId);
+          const outputDir = path.join(process.cwd(), 'data', 'outputs', promptId);
           try {
             await fs.mkdir(outputDir, { recursive: true });
             const extension = contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg' : 'png';

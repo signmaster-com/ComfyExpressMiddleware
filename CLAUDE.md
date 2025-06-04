@@ -20,8 +20,9 @@ Copy `.env.example` to `.env` and configure:
 - `MAX_CONCURRENT_JOBS` - Maximum concurrent jobs across all instances (default: 4)
 - `MAX_JOBS_PER_INSTANCE` - Maximum concurrent jobs per ComfyUI instance (default: 2)
 - `JOB_PROCESSING_INTERVAL` - Job processor polling interval in milliseconds (default: 1000ms)
-- `METRICS_FILE_PATH` - Path to metrics persistence file (default: ./data/metrics.json)
+- `METRICS_FILE_PATH` - Path to metrics persistence file (default: ./data/metrics/metrics.json)
 - `METRICS_SAVE_INTERVAL` - Auto-save interval for metrics in milliseconds (default: 300000ms / 5 minutes)
+- `LOG_LEVEL` - Logging level for winston logger (default: info). Options: error, warn, info, debug
 
 ## Architecture Overview
 
@@ -284,3 +285,54 @@ The system implements sophisticated concurrent processing across dual ComfyUI in
 - 60-second timeout for workflow execution
 - Error handling at each layer with detailed logging
 - Health monitoring ensures system reliability
+
+### Logging and Monitoring
+
+The system includes comprehensive structured logging for operational visibility:
+
+**Logging Infrastructure:**
+- **Winston** logger with JSON structured format for machine parsing
+- **Dual output**: Console (development) and file-based persistence
+- **Log files**: `data/logs/combined.log` (all logs) and `data/logs/error.log` (errors only)
+- **Log rotation**: 5MB max file size, 5 file retention
+- **Request ID tracking**: Unique request IDs for tracing across services
+
+**Log Levels (configurable via LOG_LEVEL):**
+- `error` - Critical errors and failures
+- `warn` - Warning conditions and degraded performance
+- `info` - General operational information (default)
+- `debug` - Detailed debugging information
+
+**Request Logging Features:**
+- HTTP request/response logging with duration tracking
+- Request ID injection (`X-Request-ID` response header)
+- User agent, IP address, and content type tracking
+- Response status code and content length logging
+- Error context with stack traces for failed requests
+
+**Service-Specific Loggers:**
+- **Job Logger**: Per-job tracking with job ID, type, and instance
+- **Service Logger**: Component-level logging (job-processor, server, etc.)
+- **Request Logger**: HTTP request lifecycle tracking
+
+**Example Log Entry:**
+```json
+{
+  "timestamp": "2025-06-04 12:44:18.415",
+  "level": "info",
+  "service": "comfyui-middleware",
+  "message": "Job completed successfully",
+  "component": "job-processor",
+  "jobId": "abc123",
+  "jobType": "remove-background",
+  "instance": "192.168.1.19:8188",
+  "processingDuration": 3450,
+  "resultSize": 1048576
+}
+```
+
+**Monitoring Integration:**
+- Structured JSON format enables easy parsing by log aggregation tools
+- Request IDs enable distributed tracing
+- Performance metrics embedded in log entries
+- Error tracking with full context and stack traces

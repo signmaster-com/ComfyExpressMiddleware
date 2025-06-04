@@ -3,6 +3,7 @@ const { getLoadBalancer } = require('./loadBalancer');
 const { executeWorkflow } = require('./comfyuiService');
 const { getRemoveBackgroundWorkflow, getUpscaleImageWorkflow } = require('../workflows');
 const { getMetrics } = require('./metrics');
+const { createServiceLogger, createJobLogger } = require('../utils/logger');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -16,6 +17,7 @@ class JobProcessor {
     this.activeProcessingJobs = new Map(); // Track currently processing jobs
     this.processingIntervalId = null;
     this.instanceJobCounts = new Map(); // Track jobs per instance
+    this.logger = createServiceLogger('job-processor');
     
     // Configuration
     this.maxConcurrentJobs = parseInt(process.env.MAX_CONCURRENT_JOBS) || 4;
@@ -34,11 +36,12 @@ class JobProcessor {
       }
     };
     
-    console.log(`🏭 JobProcessor initialized:`);
-    console.log(`   Max concurrent jobs: ${this.maxConcurrentJobs}`);
-    console.log(`   Max jobs per instance: ${this.maxJobsPerInstance}`);
-    console.log(`   Processing interval: ${this.processingInterval}ms`);
-    console.log(`   Output files: ${process.env.OUTPUT_FILES === 'true' ? 'ENABLED' : 'DISABLED'}`);
+    this.logger.info('JobProcessor initialized', {
+      maxConcurrentJobs: this.maxConcurrentJobs,
+      maxJobsPerInstance: this.maxJobsPerInstance,
+      processingInterval: this.processingInterval,
+      outputFiles: process.env.OUTPUT_FILES === 'true'
+    });
     
     // Graceful shutdown handling
     process.on('SIGINT', () => this.shutdown());
@@ -50,11 +53,11 @@ class JobProcessor {
    */
   start() {
     if (this.isRunning) {
-      console.log('⚠️  JobProcessor is already running');
+      this.logger.warn('JobProcessor start attempted while already running');
       return;
     }
 
-    console.log('🚀 Starting JobProcessor...');
+    this.logger.info('Starting JobProcessor');
     this.isRunning = true;
     
     // Start the processing loop
@@ -62,7 +65,7 @@ class JobProcessor {
       this.processQueuedJobs();
     }, this.processingInterval);
     
-    console.log('✅ JobProcessor started');
+    this.logger.info('JobProcessor started successfully');
   }
 
   /**
@@ -201,7 +204,12 @@ class JobProcessor {
    * @param {Object} instance - ComfyUI instance
    */
   startJobProcessing(job, instance) {
-    console.log(`🎯 Starting job ${job.id} (${job.type}) on instance ${instance.host}`);
+    const jobLogger = createJobLogger(job.id, job.type, instance.host);
+    jobLogger.info('Starting job processing', {
+      jobId: job.id,
+      jobType: job.type,
+      instance: instance.host
+    });
 
     // Record job creation in metrics
     const metrics = getMetrics();
@@ -221,9 +229,12 @@ class JobProcessor {
     // Create processing promise
     const processingPromise = this.executeJobWorkflow(job, instance)
       .then(result => {
-        console.log(`✅ Job ${job.id} completed successfully`);
-        
         const processingDuration = Date.now() - (job.processingStartTime || job.updatedTime);
+        
+        jobLogger.info('Job completed successfully', {
+          processingDuration,
+          resultSize: result?.base64?.length || 0
+        });
         
         // Record successful completion in metrics
         const metrics = getMetrics();
@@ -237,9 +248,13 @@ class JobProcessor {
         });
       })
       .catch(error => {
-        console.error(`❌ Job ${job.id} failed:`, error.message);
-        
         const processingDuration = Date.now() - (job.processingStartTime || job.updatedTime);
+        
+        jobLogger.error('Job processing failed', {
+          error: error.message,
+          processingDuration,
+          stack: error.stack
+        });
         
         // Record failed completion in metrics
         const metrics = getMetrics();
@@ -260,7 +275,9 @@ class JobProcessor {
         const currentCount = this.instanceJobCounts.get(instance.host) || 0;
         this.instanceJobCounts.set(instance.host, Math.max(0, currentCount - 1));
         
-        console.log(`🏁 Job ${job.id} processing completed. Instance ${instance.host} now has ${this.instanceJobCounts.get(instance.host)} active jobs`);
+        jobLogger.info('Job processing completed', {
+          instanceActiveJobs: this.instanceJobCounts.get(instance.host)
+        });
       });
 
     // Track the active job
@@ -526,7 +543,7 @@ class JobProcessor {
     
     // Save file if OUTPUT_FILES is enabled
     if (process.env.OUTPUT_FILES === 'true') {
-      const outputDir = path.join(process.cwd(), 'outputs', promptId);
+      const outputDir = path.join(process.cwd(), 'data', 'outputs', promptId);
       try {
         await fs.mkdir(outputDir, { recursive: true });
         const fileName = imageInfo.filename;
