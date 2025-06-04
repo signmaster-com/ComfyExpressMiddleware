@@ -2,7 +2,32 @@ const { getJobManager } = require('../services/jobManager');
 const { getJobProcessor } = require('../services/jobProcessor');
 
 /**
- * Get job status by ID
+ * Remove base64 data from job object to prevent huge responses
+ * @param {Object} job - Job object
+ * @returns {Object} Sanitized job object without base64 data
+ */
+function sanitizeJobForListing(job) {
+  const sanitized = { ...job };
+  
+  // Remove base64 from input data
+  if (sanitized.data && sanitized.data.imageBase64) {
+    sanitized.data = { ...sanitized.data };
+    delete sanitized.data.imageBase64;
+    sanitized.data.imageBase64_size = '[removed - use result endpoint]';
+  }
+  
+  // Remove base64 from result data
+  if (sanitized.result && sanitized.result.base64) {
+    sanitized.result = { ...sanitized.result };
+    delete sanitized.result.base64;
+    sanitized.result.base64_size = '[removed - use result endpoint]';
+  }
+  
+  return sanitized;
+}
+
+/**
+ * Get job status by ID (admin info endpoint - excludes base64 data)
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
@@ -21,7 +46,10 @@ async function getJobStatus(req, res) {
       return res.status(404).json({ error: 'Job not found' });
     }
     
-    return res.status(200).json(job);
+    // Sanitize job data to exclude base64 content
+    const sanitizedJob = sanitizeJobForListing(job);
+    
+    return res.status(200).json(sanitizedJob);
   } catch (error) {
     console.error('Error getting job status:', error);
     return res.status(500).json({
@@ -32,7 +60,7 @@ async function getJobStatus(req, res) {
 }
 
 /**
- * Get all jobs with optional filtering
+ * Get all jobs with optional filtering (excludes base64 data)
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
@@ -51,9 +79,12 @@ async function getAllJobs(req, res) {
       jobs = jobManager.getAllJobs(status, type);
     }
     
+    // Sanitize all jobs to exclude base64 content
+    const sanitizedJobs = jobs.map(job => sanitizeJobForListing(job));
+    
     return res.status(200).json({
-      jobs: jobs,
-      total: jobs.length
+      jobs: sanitizedJobs,
+      total: sanitizedJobs.length
     });
   } catch (error) {
     console.error('Error getting jobs:', error);
