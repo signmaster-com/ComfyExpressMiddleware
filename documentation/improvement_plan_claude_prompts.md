@@ -48,20 +48,22 @@ REQUIREMENTS:
 1. Create InstanceHealthChecker class in services/healthChecker.js
 2. Ping /system_stats endpoint every 30 seconds for each instance
 3. Mark instance unhealthy after 3 consecutive failures
-4. Auto-recovery when health check succeeds
-5. Integrate with LoadBalancer to exclude unhealthy instances
-6. Add simple circuit breaker logic (fail fast when instance unhealthy)
-7. Log health status changes
+4. Check health of an instance before submitting a job to a comfy instance we never want to route to a dead instance (timeout of 300ms is sufficient)
+5. Auto-recovery when health check succeeds
+6. Integrate with LoadBalancer to exclude unhealthy instances
+7. Add simple circuit breaker logic (fail fast when instance unhealthy)
+8. Log health status changes
 
 ACCEPTANCE CRITERIA:
 - Health checks run automatically every 30 seconds
+- Health check runs upon each job submission
 - Failed instances are excluded from load balancing
 - Instances auto-recover when healthy
 - Health status is logged clearly
 - No healthy instances scenario is handled gracefully
 
 TECHNICAL NOTES:
-- Use axios with 5-second timeout for health checks
+- Use axios with 300ms timeout for health checks
 - Integrate with existing LoadBalancer class
 - Add basic logging for health status changes
 - Use setInterval for periodic health checks
