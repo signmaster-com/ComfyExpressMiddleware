@@ -25,6 +25,10 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null, jobType
   // Deep clone the workflow to avoid modifying the original
   const modifiedWorkflow = JSON.parse(JSON.stringify(workflowJson));
   
+  // Add unique identifier to prevent ComfyUI caching identical workflows
+  const uniqueTimestamp = Date.now();
+  const uniqueId = `sync_${clientId}_${uniqueTimestamp}`;
+  
   // Update input nodes with the base64 image
   let inputNodeFound = false;
   for (const nodeId in modifiedWorkflow) {
@@ -38,6 +42,13 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null, jobType
       node.inputs.image = base64String;
       inputNodeFound = true;
       console.log(`Found and updated InputImageBase64 node (ID: ${nodeId})`);
+    }
+    
+    // Add unique identifier to SaveImage nodes to prevent caching
+    if (node.class_type === 'SaveImage' && node.inputs) {
+      // Append unique identifier to filename prefix
+      const originalPrefix = node.inputs.filename_prefix || 'ComfyUI';
+      node.inputs.filename_prefix = `${originalPrefix}_${uniqueId}`;
     }
   }
   

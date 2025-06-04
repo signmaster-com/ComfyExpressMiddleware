@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 const { getConnectionManager } = require('./services/connectionManager.js');
 const { getJobManager } = require('./services/jobManager.js');
 const { getJobProcessor } = require('./services/jobProcessor.js');
+const { getMetrics } = require('./services/metrics.js');
 
 // Load environment variables from .env file
 dotenv.config();
@@ -10,10 +11,11 @@ dotenv.config();
 // Define the port
 const PORT = process.env.PORT || 3000;
 
-// Initialize connection manager, job manager, and job processor on startup
+// Initialize connection manager, job manager, job processor, and metrics on startup
 const connectionManager = getConnectionManager();
 const jobManager = getJobManager();
 const jobProcessor = getJobProcessor();
+const metrics = getMetrics();
 
 // Start the server
 app.listen(PORT, () => {
@@ -31,5 +33,6 @@ app.listen(PORT, () => {
     connectionManager.logStatus();
     jobManager.logStatus();
     jobProcessor.logStatus();
+    metrics.logStatus();
   }, 60000);
 });

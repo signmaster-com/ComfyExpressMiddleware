@@ -16,6 +16,19 @@ const {
   getJobStatus: getAsyncJobStatus,
   getJobResult
 } = require('./routes/asyncJobHandler.js');
+const {
+  getSystemMetrics,
+  getPerformanceMetrics,
+  getErrorMetrics,
+  getInstanceMetrics,
+  forceSaveMetrics,
+  getMetricsPersistenceStatus
+} = require('./routes/metricsHandler.js');
+const {
+  getSystemHealth,
+  getBasicMetrics,
+  getQuickStatus
+} = require('./routes/statusHandler.js');
 
 // Instantiate Express app
 const app = express();
@@ -48,6 +61,20 @@ app.get('/api/jobs/list', getAllJobs);
 app.get('/api/jobs/:jobId/info', getJobStatus);
 app.delete('/api/jobs/:jobId', deleteJob);
 app.post('/api/jobs/cleanup', cleanupExpiredJobs);
+
+// Health and Status routes
+app.get('/health', getSystemHealth);
+app.get('/status', getQuickStatus);
+app.get('/status/metrics', getBasicMetrics);
+
+// Detailed Metrics routes
+app.get('/api/metrics', getSystemMetrics);
+app.get('/api/metrics/performance', getPerformanceMetrics);
+app.get('/api/metrics/errors', getErrorMetrics);
+app.get('/api/metrics/instances', getInstanceMetrics);
+app.get('/api/metrics/instances/:instance', getInstanceMetrics);
+app.post('/api/metrics/save', forceSaveMetrics);
+app.get('/api/metrics/persistence', getMetricsPersistenceStatus);
 
 // Basic global error handler
 app.use((err, req, res, next) => {

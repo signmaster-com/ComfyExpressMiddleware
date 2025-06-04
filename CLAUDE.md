@@ -16,9 +16,12 @@ Copy `.env.example` to `.env` and configure:
 - `OUTPUT_FILES` - Save output files to disk (default: false)
 - `MAX_CONNECTIONS_PER_INSTANCE` - Maximum WebSocket connections per ComfyUI instance (default: 3)
 - `JOB_TIMEOUT` - Job timeout in milliseconds for automatic cleanup (default: 300000ms / 5 minutes)
+- `JOB_CLEANUP_INTERVAL` - Job cleanup interval in milliseconds for completed/failed jobs (default: 600000ms / 10 minutes)
 - `MAX_CONCURRENT_JOBS` - Maximum concurrent jobs across all instances (default: 4)
 - `MAX_JOBS_PER_INSTANCE` - Maximum concurrent jobs per ComfyUI instance (default: 2)
 - `JOB_PROCESSING_INTERVAL` - Job processor polling interval in milliseconds (default: 1000ms)
+- `METRICS_FILE_PATH` - Path to metrics persistence file (default: ./data/metrics.json)
+- `METRICS_SAVE_INTERVAL` - Auto-save interval for metrics in milliseconds (default: 300000ms / 5 minutes)
 
 ## Architecture Overview
 
@@ -33,7 +36,10 @@ This is an Express.js middleware server that provides a simplified API interface
 1. **Routes Layer** (`/routes`)
    - `removeBackgroundHandler.js` - Handles `/api/remove-background` endpoint
    - `upscaleImageHandler.js` - Handles `/api/upscale-image` endpoint
+   - `asyncJobHandler.js` - Handles asynchronous job submission and result retrieval
    - `jobStatusHandler.js` - Handles job status and management endpoints
+   - `metricsHandler.js` - Handles detailed metrics and operational data
+   - `statusHandler.js` - Handles system health checks and basic status monitoring
    - Both processing routes accept image uploads via `multipart/form-data` with field name `imageFile`
 
 2. **Services Layer** (`/services`)
@@ -44,8 +50,9 @@ This is an Express.js middleware server that provides a simplified API interface
      - Integrates with job management for tracking
    - `jobManager.js` - Lightweight in-memory job management system
      - Tracks job states: pending, processing, completed, failed
-     - Automatic cleanup after configurable timeout
+     - Automatic cleanup with configurable intervals (JOB_TIMEOUT for execution, JOB_CLEANUP_INTERVAL for completed jobs)
      - Provides job status queries and statistics
+     - Prevents workflow caching by adding unique identifiers to each job
    - `jobProcessor.js` - Background job processor for concurrent execution
      - Processes jobs across multiple ComfyUI instances concurrently
      - Load balances jobs based on instance availability
@@ -54,6 +61,12 @@ This is an Express.js middleware server that provides a simplified API interface
    - `connectionManager.js` - WebSocket connection pooling for efficient dual-instance communication
    - `loadBalancer.js` - Load balancing across multiple ComfyUI instances
    - `healthChecker.js` - Health monitoring for ComfyUI instances
+   - `metrics.js` - Operational metrics collection and persistence
+     - Tracks job processing statistics and performance metrics
+     - Per-instance and per-job-type statistics with processing times
+     - File-based persistence with automatic saves every 5 minutes
+     - Error tracking and success rate calculations
+     - System uptime and throughput monitoring
 
 3. **Workflows** (`workflows.js`)
    - Contains ComfyUI workflow definitions as JavaScript functions
@@ -107,6 +120,20 @@ The server provides both synchronous and asynchronous processing endpoints:
 - `GET /api/jobs/{jobId}/info` - Get specific job details (admin view)
 - `DELETE /api/jobs/{jobId}` - Manually delete a specific job
 - `POST /api/jobs/cleanup` - Manually trigger cleanup of expired jobs
+
+**Health and Status API** (system monitoring):
+- `GET /health` - System health check (200 for healthy, 503 for degraded/critical)
+- `GET /status` - Quick status check (lightweight health summary)
+- `GET /status/metrics` - Basic operational metrics for monitoring dashboards
+
+**Detailed Metrics API** (operational monitoring):
+- `GET /api/metrics` - Get comprehensive system metrics (jobs, performance, instances, errors)
+- `GET /api/metrics/performance` - Get performance metrics and KPIs
+- `GET /api/metrics/errors` - Get error rates and recent failures
+- `GET /api/metrics/instances` - Get all instance utilization statistics
+- `GET /api/metrics/instances/{instance}` - Get specific instance metrics
+- `POST /api/metrics/save` - Force save metrics to file immediately
+- `GET /api/metrics/persistence` - Get metrics persistence status and configuration
 
 **Job States**:
 - `pending` - Job created, waiting for processing
@@ -166,6 +193,61 @@ curl -X POST -F "imageFile=@image.jpg" http://localhost:3000/api/remove-backgrou
 
 # Asynchronous via query parameter
 curl -X POST -F "imageFile=@image.jpg" "http://localhost:3000/api/remove-background?async=true"
+```
+
+### Health and Status Monitoring
+
+**System health check:**
+```bash
+curl http://localhost:3000/health
+# Returns: 200 OK for healthy system, 503 Service Unavailable for degraded/critical
+{
+  "status": "healthy",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "uptime": { "total_uptime_hours": 24.5 },
+  "comfyui_instances": {
+    "total": 2,
+    "healthy": 2,
+    "instances": [...]
+  },
+  "job_processing": {
+    "processor_running": true,
+    "active_jobs": 2
+  },
+  "performance": {
+    "total_jobs_processed": 1500,
+    "success_rate": "98.5%"
+  }
+}
+```
+
+**Quick status check:**
+```bash
+curl http://localhost:3000/status
+# Lightweight health check for load balancers
+{
+  "status": "healthy",
+  "healthy_instances": 2,
+  "active_jobs": 1,
+  "uptime_hours": 24.5
+}
+```
+
+**Basic metrics:**
+```bash
+curl http://localhost:3000/status/metrics
+# Operational metrics for monitoring dashboards
+{
+  "jobs": {
+    "total_processed": 1500,
+    "success_rate": "98.5%",
+    "jobs_per_hour": 62.5
+  },
+  "performance": {
+    "average_processing_time_seconds": 45.2,
+    "p95_processing_time_ms": 65000
+  }
+}
 ```
 
 ### Concurrent Processing Architecture

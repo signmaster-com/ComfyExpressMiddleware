@@ -2,6 +2,9 @@ const { getJobManager } = require('./jobManager');
 const { getLoadBalancer } = require('./loadBalancer');
 const { executeWorkflow } = require('./comfyuiService');
 const { getRemoveBackgroundWorkflow, getUpscaleImageWorkflow } = require('../workflows');
+const { getMetrics } = require('./metrics');
+const fs = require('fs').promises;
+const path = require('path');
 
 /**
  * Background job processor for concurrent ComfyUI workflow execution
@@ -35,6 +38,7 @@ class JobProcessor {
     console.log(`   Max concurrent jobs: ${this.maxConcurrentJobs}`);
     console.log(`   Max jobs per instance: ${this.maxJobsPerInstance}`);
     console.log(`   Processing interval: ${this.processingInterval}ms`);
+    console.log(`   Output files: ${process.env.OUTPUT_FILES === 'true' ? 'ENABLED' : 'DISABLED'}`);
     
     // Graceful shutdown handling
     process.on('SIGINT', () => this.shutdown());
@@ -199,6 +203,10 @@ class JobProcessor {
   startJobProcessing(job, instance) {
     console.log(`🎯 Starting job ${job.id} (${job.type}) on instance ${instance.host}`);
 
+    // Record job creation in metrics
+    const metrics = getMetrics();
+    metrics.recordJobCreated(job.type, instance.host);
+
     // Update job status to processing
     const jobManager = getJobManager();
     jobManager.updateJobStatus(job.id, 'processing', {
@@ -215,21 +223,33 @@ class JobProcessor {
       .then(result => {
         console.log(`✅ Job ${job.id} completed successfully`);
         
+        const processingDuration = Date.now() - (job.processingStartTime || job.updatedTime);
+        
+        // Record successful completion in metrics
+        const metrics = getMetrics();
+        metrics.recordJobCompleted(job.type, instance.host, processingDuration, true);
+        
         // Update job status to completed
         jobManager.updateJobStatus(job.id, 'completed', {
           result: result,
           completedTime: Date.now(),
-          processingDuration: Date.now() - (job.processingStartTime || job.updatedTime)
+          processingDuration: processingDuration
         });
       })
       .catch(error => {
         console.error(`❌ Job ${job.id} failed:`, error.message);
         
+        const processingDuration = Date.now() - (job.processingStartTime || job.updatedTime);
+        
+        // Record failed completion in metrics
+        const metrics = getMetrics();
+        metrics.recordJobCompleted(job.type, instance.host, processingDuration, false, error.message);
+        
         // Update job status to failed
         jobManager.updateJobStatus(job.id, 'failed', {
           error: error.message,
           failedTime: Date.now(),
-          processingDuration: Date.now() - (job.processingStartTime || job.updatedTime)
+          processingDuration: processingDuration
         });
       })
       .finally(() => {
@@ -278,6 +298,7 @@ class JobProcessor {
         jobData.imageBase64, 
         targetNode, 
         job.type,
+        job.id,
         instance
       );
 
@@ -302,10 +323,11 @@ class JobProcessor {
    * @param {string} imageBase64 - Base64 image data
    * @param {string} targetNode - Target node ID
    * @param {string} jobType - Job type
+   * @param {string} jobId - Job ID for unique identification
    * @param {Object} instance - Specific instance to use
    * @returns {Promise<Object>} Execution result
    */
-  async executeWorkflowOnInstance(workflow, imageBase64, targetNode, jobType, instance) {
+  async executeWorkflowOnInstance(workflow, imageBase64, targetNode, jobType, jobId, instance) {
     // This is a simplified version that directly calls the ComfyUI API
     // We bypass the load balancer instance selection
     
@@ -321,6 +343,10 @@ class JobProcessor {
     // Deep clone and modify workflow
     const modifiedWorkflow = JSON.parse(JSON.stringify(workflow));
     
+    // Add unique identifier to prevent ComfyUI caching identical workflows
+    const uniqueTimestamp = Date.now();
+    const uniqueJobId = `job_${jobId}_${uniqueTimestamp}`;
+    
     // Update input nodes with the base64 image
     for (const nodeId in modifiedWorkflow) {
       const node = modifiedWorkflow[nodeId];
@@ -330,6 +356,13 @@ class JobProcessor {
           base64String = imageBase64.split(',')[1];
         }
         node.inputs.image = base64String;
+      }
+      
+      // Add unique identifier to SaveImage nodes to prevent caching
+      if (node.class_type === 'SaveImage' && node.inputs) {
+        // Append unique job identifier to filename prefix
+        const originalPrefix = node.inputs.filename_prefix || 'ComfyUI';
+        node.inputs.filename_prefix = `${originalPrefix}_${uniqueJobId}`;
       }
     }
     
@@ -490,6 +523,20 @@ class JobProcessor {
     const imageBuffer = Buffer.from(imageResponse.data);
     const contentType = imageResponse.headers['content-type'] || 'image/png';
     const base64Image = `data:${contentType};base64,${imageBuffer.toString('base64')}`;
+    
+    // Save file if OUTPUT_FILES is enabled
+    if (process.env.OUTPUT_FILES === 'true') {
+      const outputDir = path.join(process.cwd(), 'outputs', promptId);
+      try {
+        await fs.mkdir(outputDir, { recursive: true });
+        const fileName = imageInfo.filename;
+        const filePath = path.join(outputDir, fileName);
+        await fs.writeFile(filePath, imageBuffer);
+        console.log(`✅ Image saved to: ${filePath}`);
+      } catch (saveError) {
+        console.error('❌ Failed to save output file:', saveError);
+      }
+    }
     
     return {
       base64: base64Image,

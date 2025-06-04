@@ -14,6 +14,7 @@ class JobManager {
     
     // Configuration
     this.jobTimeout = parseInt(process.env.JOB_TIMEOUT) || 300000; // 5 minutes default
+    this.jobCleanupInterval = parseInt(process.env.JOB_CLEANUP_INTERVAL) || 600000; // 10 minutes default
     
     // Job state constants
     this.JOB_STATES = {
@@ -23,7 +24,7 @@ class JobManager {
       FAILED: 'failed'
     };
     
-    console.log(`📋 JobManager initialized with ${this.jobTimeout / 1000}s job timeout`);
+    console.log(`📋 JobManager initialized with ${this.jobTimeout / 1000}s job timeout, ${this.jobCleanupInterval / 1000}s cleanup interval`);
     
     // Graceful shutdown handling
     process.on('SIGINT', () => this.shutdown());
@@ -71,7 +72,7 @@ class JobManager {
   getJob(jobId) {
     const job = this.jobs.get(jobId);
     if (!job) {
-      console.log(`❓ Job ${jobId} not found`);
+      console.log(`❓ Job ${jobId} not found. Current jobs: ${Array.from(this.jobs.keys()).join(', ')}`);
       return null;
     }
     return { ...job }; // Return copy to prevent external modification
@@ -106,9 +107,9 @@ class JobManager {
     
     console.log(`🔄 Updated job ${jobId} status: ${status}`);
     
-    // If job is completed or failed, schedule immediate cleanup (after a short delay for result retrieval)
+    // If job is completed or failed, schedule cleanup using the configured cleanup interval
     if (status === this.JOB_STATES.COMPLETED || status === this.JOB_STATES.FAILED) {
-      this.rescheduleCleanup(jobId, 30000); // 30 seconds to retrieve results
+      this.rescheduleCleanup(jobId, this.jobCleanupInterval);
     }
     
     return true;
@@ -132,7 +133,7 @@ class JobManager {
     // Remove from memory
     this.jobs.delete(jobId);
     
-    console.log(`🗑️  Deleted job ${jobId} (type: ${job.type})`);
+    console.log(`🗑️  Deleted job ${jobId} (type: ${job.type}). Remaining jobs: ${this.jobs.size}`);
     return true;
   }
 
@@ -190,9 +191,9 @@ class JobManager {
   /**
    * Schedule automatic job cleanup
    * @param {string} jobId - Job ID
-   * @param {number} delay - Cleanup delay in milliseconds (default: job timeout)
+   * @param {number} delay - Cleanup delay in milliseconds (default: job cleanup interval)
    */
-  scheduleCleanup(jobId, delay = this.jobTimeout) {
+  scheduleCleanup(jobId, delay = this.jobCleanupInterval) {
     // Cancel existing timer if present
     this.cancelCleanup(jobId);
     

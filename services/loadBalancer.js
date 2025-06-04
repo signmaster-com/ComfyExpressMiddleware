@@ -1,4 +1,5 @@
 const InstanceHealthChecker = require('./healthChecker');
+const { getMetrics } = require('./metrics');
 
 /**
  * Load balancer for multiple ComfyUI instances
@@ -166,6 +167,28 @@ class ComfyUILoadBalancer {
       total += instance.activeJobs;
     }
     return total;
+  }
+
+  /**
+   * Get load balancer metrics
+   * @returns {Object} Load balancer specific metrics
+   */
+  getMetrics() {
+    const instances = {};
+    for (const [id, instance] of this.instances) {
+      instances[id] = {
+        host: instance.host,
+        activeJobs: instance.activeJobs,
+        isHealthy: this.healthChecker.isInstanceHealthy(id)
+      };
+    }
+    
+    return {
+      totalInstances: this.instances.size,
+      healthyInstances: this.healthChecker.getHealthyInstances().length,
+      totalActiveJobs: this.getTotalActiveJobs(),
+      instances: instances
+    };
   }
   
   /**
