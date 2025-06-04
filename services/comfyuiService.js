@@ -6,6 +6,7 @@ const path = require('path');
 const { getLoadBalancer } = require('./loadBalancer');
 const { getConnectionManager } = require('./connectionManager');
 const { getJobManager } = require('./jobManager');
+const { circuitBreakerFactory } = require('./circuitBreaker');
 
 /**
  * Executes a ComfyUI workflow with a base64 image input
@@ -97,11 +98,30 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null, jobType
     client_id: clientId
   };
   
-  // Send prompt request
+  // Get circuit breaker for this instance
+  const breaker = circuitBreakerFactory.getBreaker(`workflow-${instance.host}`, {
+    failureThreshold: 3,
+    successThreshold: 2,
+    timeout: 30000, // 30 second timeout for workflow submission
+    resetTimeout: 60000, // 1 minute initial reset
+    maxResetTimeout: 300000, // 5 minutes max
+    volumeThreshold: 5,
+    errorThresholdPercentage: 50
+  });
+
+  // Send prompt request with circuit breaker protection
   let promptId;
   try {
     console.log(`Submitting prompt to ${comfyUrl}/prompt`);
-    const response = await axios.post(`${comfyUrl}/prompt`, payload);
+    
+    const response = await breaker.execute(async () => {
+      return await axios.post(`${comfyUrl}/prompt`, payload);
+    }, {
+      operation: 'workflow-submission',
+      jobType: jobType,
+      instance: instance.host
+    });
+    
     promptId = response.data.prompt_id;
     console.log(`Prompt submitted successfully. Prompt ID: ${promptId}`);
     
@@ -112,14 +132,19 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null, jobType
     });
   } catch (error) {
     console.error('ComfyUI prompt request failed:', error.message);
-    if (error.response) {
+    
+    // Check if circuit breaker rejected the request
+    if (error.code === 'CIRCUIT_BREAKER_OPEN') {
+      console.error(`Circuit breaker is open for ${instance.host}, next attempt at: ${new Date(error.nextAttempt).toISOString()}`);
+    } else if (error.response) {
       console.error('Response data:', error.response.data);
     }
     
     // Update job status to failed
     jobManager.updateJobStatus(jobId, jobManager.JOB_STATES.FAILED, {
       error: error.message,
-      errorDetails: error.response?.data
+      errorDetails: error.response?.data,
+      circuitBreakerOpen: error.code === 'CIRCUIT_BREAKER_OPEN'
     });
     
     // Decrement active jobs on failure
@@ -131,7 +156,7 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null, jobType
       console.error(`Marked instance ${comfyHost} as unhealthy due to connection error: ${error.code}`);
     }
     
-    throw new Error('ComfyUI prompt request failed');
+    throw new Error(`ComfyUI prompt request failed: ${error.message}`);
   }
   
   // Monitor execution via pooled WebSocket connection
@@ -330,7 +355,14 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null, jobType
         // Wait a bit to ensure results are saved
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        const historyResponse = await axios.get(`${comfyUrl}/history/${promptId}`);
+        // Use circuit breaker for history fetch
+        const historyResponse = await breaker.execute(async () => {
+          return await axios.get(`${comfyUrl}/history/${promptId}`);
+        }, {
+          operation: 'fetch-history',
+          promptId: promptId
+        });
+        
         const history = historyResponse.data;
         
         if (!history[promptId]) {
@@ -364,14 +396,19 @@ async function executeWorkflow(workflowJson, imageBase64, nodeId = null, jobType
         
         console.log(`Downloading image: ${imageInfo.filename} from ${imageInfo.type} folder`);
         
-        // Download the image
-        const imageResponse = await axios.get(`${comfyUrl}/view`, {
-          params: {
-            filename: imageInfo.filename,
-            subfolder: imageInfo.subfolder || '',
-            type: imageInfo.type
-          },
-          responseType: 'arraybuffer'
+        // Download the image with circuit breaker
+        const imageResponse = await breaker.execute(async () => {
+          return await axios.get(`${comfyUrl}/view`, {
+            params: {
+              filename: imageInfo.filename,
+              subfolder: imageInfo.subfolder || '',
+              type: imageInfo.type
+            },
+            responseType: 'arraybuffer'
+          });
+        }, {
+          operation: 'download-image',
+          filename: imageInfo.filename
         });
         
         const imageBuffer = Buffer.from(imageResponse.data);

@@ -21,7 +21,7 @@ async function getSystemHealth(req, res) {
     
     // Get ComfyUI instance health
     const instancesStatus = loadBalancer.getInstancesStatus();
-    const healthyInstances = instancesStatus.filter(instance => instance.isHealthy);
+    const healthyInstances = instancesStatus.filter(instance => instance.healthy);
     const totalInstances = instancesStatus.length;
     
     // System uptime
@@ -34,7 +34,7 @@ async function getSystemHealth(req, res) {
     const jobManagerStats = jobManager.getStats();
     
     // Connection manager status
-    const connectionStats = connectionManager.getStats();
+    const connectionStats = connectionManager.getAllStats();
     
     // Determine overall system health
     let systemStatus = 'healthy';
@@ -86,9 +86,13 @@ async function getSystemHealth(req, res) {
         instances: instancesStatus.map(instance => ({
           id: instance.id,
           host: instance.host,
-          is_healthy: instance.isHealthy,
+          is_healthy: instance.healthy,
           last_health_check: instance.lastHealthCheck,
-          consecutive_failures: instance.consecutiveFailures,
+          circuit_breaker: instance.circuitBreaker ? {
+            state: instance.circuitBreaker.state,
+            failures: instance.circuitBreaker.failures,
+            error_rate: instance.circuitBreaker.errorRate
+          } : null,
           active_jobs: instance.activeJobs || 0
         }))
       },
@@ -96,14 +100,13 @@ async function getSystemHealth(req, res) {
         processor_running: processorStats.isRunning,
         active_jobs: processorStats.activeJobs,
         max_concurrent_jobs: processorStats.maxConcurrentJobs,
-        total_jobs_in_memory: jobManagerStats.totalJobs,
-        pending_jobs: jobManagerStats.jobsByStatus.pending || 0,
-        processing_jobs: jobManagerStats.jobsByStatus.processing || 0
+        total_jobs_in_memory: jobManagerStats.total,
+        pending_jobs: jobManagerStats.byStatus.pending || 0,
+        processing_jobs: jobManagerStats.byStatus.processing || 0
       },
       connections: {
-        total_connections: connectionStats.totalConnections,
-        active_connections: connectionStats.activeConnections,
-        max_connections_per_instance: connectionStats.maxConnectionsPerInstance
+        total_pools: Object.keys(connectionStats).length,
+        pool_stats: connectionStats
       },
       performance: {
         total_jobs_processed: metricsStats.jobs.total,

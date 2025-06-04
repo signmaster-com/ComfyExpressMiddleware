@@ -1,0 +1,585 @@
+{
+  "info": {
+    "_postman_id": "comfyui-express-middleware",
+    "name": "ComfyUI Express Middleware API",
+    "description": "Complete API collection for ComfyUI Express Middleware including image processing, job management, health monitoring, and metrics",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Image Processing",
+      "item": [
+        {
+          "name": "Remove Background (Sync)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "imageFile",
+                  "type": "file",
+                  "src": "",
+                  "description": "Image file to process (max 10MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/remove-background",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "remove-background"]
+            },
+            "description": "Remove background from an image synchronously. Returns the processed image immediately."
+          }
+        },
+        {
+          "name": "Remove Background (Async)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "imageFile",
+                  "type": "file",
+                  "src": "",
+                  "description": "Image file to process (max 10MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/remove-background?async=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "remove-background"],
+              "query": [
+                {
+                  "key": "async",
+                  "value": "true",
+                  "description": "Enable async processing"
+                }
+              ]
+            },
+            "description": "Remove background from an image asynchronously. Returns a job ID for tracking."
+          }
+        },
+        {
+          "name": "Upscale Image (Sync)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "imageFile",
+                  "type": "file",
+                  "src": "",
+                  "description": "Image file to upscale (max 10MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/upscale-image",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "upscale-image"]
+            },
+            "description": "Upscale an image synchronously using AI model. Returns the processed image immediately."
+          }
+        },
+        {
+          "name": "Upscale Image (Async)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "imageFile",
+                  "type": "file",
+                  "src": "",
+                  "description": "Image file to upscale (max 10MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/upscale-image?mode=async",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "upscale-image"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "async",
+                  "description": "Enable async processing"
+                }
+              ]
+            },
+            "description": "Upscale an image asynchronously. Returns a job ID for tracking."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Async Processing",
+      "item": [
+        {
+          "name": "Remove Background (Async Endpoint)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "imageFile",
+                  "type": "file",
+                  "src": "",
+                  "description": "Image file to process (max 10MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/async/remove-background",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "async", "remove-background"]
+            },
+            "description": "Submit a background removal job. Returns job_id immediately with status URLs."
+          }
+        },
+        {
+          "name": "Upscale Image (Async Endpoint)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "imageFile",
+                  "type": "file",
+                  "src": "",
+                  "description": "Image file to upscale (max 10MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/async/upscale-image",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "async", "upscale-image"]
+            },
+            "description": "Submit an upscaling job. Returns job_id immediately with status URLs."
+          }
+        },
+        {
+          "name": "Get Job Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/:job_id/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", ":job_id", "status"],
+              "variable": [
+                {
+                  "key": "job_id",
+                  "value": "{{jobId}}",
+                  "description": "Job ID returned from async submission"
+                }
+              ]
+            },
+            "description": "Get the current status of a job including progress information."
+          }
+        },
+        {
+          "name": "Get Job Result",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/:job_id/result",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", ":job_id", "result"],
+              "variable": [
+                {
+                  "key": "job_id",
+                  "value": "{{jobId}}",
+                  "description": "Job ID returned from async submission"
+                }
+              ]
+            },
+            "description": "Get the result of a completed job. Returns the processed image in base64 format."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Job Management",
+      "item": [
+        {
+          "name": "Get Job Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "stats"]
+            },
+            "description": "Get overall job statistics including counts by status, type, and instance."
+          }
+        },
+        {
+          "name": "Get Processor Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/processor/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "processor", "stats"]
+            },
+            "description": "Get job processor statistics including active jobs and instance utilization."
+          }
+        },
+        {
+          "name": "List Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/list?status=pending&type=remove-background",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "list"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "Filter by status (pending, processing, completed, failed)",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "remove-background",
+                  "description": "Filter by job type",
+                  "disabled": true
+                },
+                {
+                  "key": "instance",
+                  "value": "192.168.1.19:8188",
+                  "description": "Filter by ComfyUI instance",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List all jobs with optional filtering by status, type, or instance."
+          }
+        },
+        {
+          "name": "Get Job Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/:jobId/info",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", ":jobId", "info"],
+              "variable": [
+                {
+                  "key": "jobId",
+                  "value": "{{jobId}}",
+                  "description": "Specific job ID"
+                }
+              ]
+            },
+            "description": "Get detailed information about a specific job (admin view)."
+          }
+        },
+        {
+          "name": "Delete Job",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/:jobId",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", ":jobId"],
+              "variable": [
+                {
+                  "key": "jobId",
+                  "value": "{{jobId}}",
+                  "description": "Job ID to delete"
+                }
+              ]
+            },
+            "description": "Manually delete a specific job from the system."
+          }
+        },
+        {
+          "name": "Cleanup Expired Jobs",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/cleanup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "cleanup"]
+            },
+            "description": "Manually trigger cleanup of expired jobs."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health & Status",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "System health check. Returns 200 for healthy, 503 for degraded/critical."
+          }
+        },
+        {
+          "name": "Quick Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["status"]
+            },
+            "description": "Lightweight status check for load balancers."
+          }
+        },
+        {
+          "name": "Basic Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/status/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["status", "metrics"]
+            },
+            "description": "Basic operational metrics for monitoring dashboards."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Detailed Metrics",
+      "item": [
+        {
+          "name": "Get System Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "metrics"]
+            },
+            "description": "Get comprehensive system metrics including jobs, performance, instances, and errors."
+          }
+        },
+        {
+          "name": "Get Performance Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/metrics/performance",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "metrics", "performance"]
+            },
+            "description": "Get performance metrics and KPIs including processing times and percentiles."
+          }
+        },
+        {
+          "name": "Get Error Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/metrics/errors",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "metrics", "errors"]
+            },
+            "description": "Get error rates and recent failure details."
+          }
+        },
+        {
+          "name": "Get All Instance Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/metrics/instances",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "metrics", "instances"]
+            },
+            "description": "Get utilization statistics for all ComfyUI instances."
+          }
+        },
+        {
+          "name": "Get Specific Instance Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/metrics/instances/:instance",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "metrics", "instances", ":instance"],
+              "variable": [
+                {
+                  "key": "instance",
+                  "value": "192.168.1.19:8188",
+                  "description": "ComfyUI instance host:port"
+                }
+              ]
+            },
+            "description": "Get metrics for a specific ComfyUI instance."
+          }
+        },
+        {
+          "name": "Force Save Metrics",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/metrics/save",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "metrics", "save"]
+            },
+            "description": "Force save metrics to file immediately."
+          }
+        },
+        {
+          "name": "Get Metrics Persistence Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/metrics/persistence",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "metrics", "persistence"]
+            },
+            "description": "Get metrics persistence status and configuration."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Circuit Breakers",
+      "item": [
+        {
+          "name": "Get Circuit Breaker Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/circuit-breakers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "circuit-breakers"]
+            },
+            "description": "Get status of all circuit breakers in the system."
+          }
+        },
+        {
+          "name": "Force Close Circuit Breaker",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/circuit-breakers/:name/close",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "circuit-breakers", ":name", "close"],
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "workflow-192.168.1.19:8188",
+                  "description": "Circuit breaker name"
+                }
+              ]
+            },
+            "description": "Force close a specific circuit breaker (admin action)."
+          }
+        },
+        {
+          "name": "Force Open Circuit Breaker",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/circuit-breakers/:name/open",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "circuit-breakers", ":name", "open"],
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "workflow-192.168.1.19:8188",
+                  "description": "Circuit breaker name"
+                }
+              ]
+            },
+            "description": "Force open a specific circuit breaker (admin action)."
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Capture job ID from async responses",
+          "if (pm.response.code === 202) {",
+          "    const jsonData = pm.response.json();",
+          "    if (jsonData.job_id) {",
+          "        pm.collectionVariables.set('jobId', jsonData.job_id);",
+          "        console.log('Job ID captured:', jsonData.job_id);",
+          "    }",
+          "}",
+          "",
+          "// Log request ID for debugging",
+          "const requestId = pm.response.headers.get('X-Request-ID');",
+          "if (requestId) {",
+          "    console.log('Request ID:', requestId);",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "jobId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

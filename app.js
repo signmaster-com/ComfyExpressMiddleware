@@ -31,6 +31,11 @@ const {
   getBasicMetrics,
   getQuickStatus
 } = require('./routes/statusHandler.js');
+const {
+  getCircuitBreakerStatus,
+  forceCloseBreaker,
+  forceOpenBreaker
+} = require('./routes/circuitBreakerHandler.js');
 
 // Instantiate Express app
 const app = express();
@@ -78,6 +83,11 @@ app.get('/api/metrics/instances', getInstanceMetrics);
 app.get('/api/metrics/instances/:instance', getInstanceMetrics);
 app.post('/api/metrics/save', forceSaveMetrics);
 app.get('/api/metrics/persistence', getMetricsPersistenceStatus);
+
+// Circuit Breaker routes
+app.get('/api/circuit-breakers', getCircuitBreakerStatus);
+app.post('/api/circuit-breakers/:name/close', forceCloseBreaker);
+app.post('/api/circuit-breakers/:name/open', forceOpenBreaker);
 
 // Enhanced global error handler with structured logging
 app.use((err, req, res, next) => {

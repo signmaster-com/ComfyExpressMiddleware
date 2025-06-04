@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { circuitBreakerFactory } = require('./circuitBreaker');
 
 class InstanceHealthChecker {
     constructor() {
@@ -6,7 +7,8 @@ class InstanceHealthChecker {
         this.healthCheckInterval = null;
         this.healthCheckIntervalMs = 30000; // 30 seconds
         this.maxConsecutiveFailures = 3;
-        this.healthCheckTimeout = 300; // 300ms timeout
+        this.healthCheckTimeout = 5000; // 5 second timeout for health checks
+        this.circuitBreakers = new Map(); // Circuit breakers per instance
     }
 
     /**
@@ -18,10 +20,22 @@ class InstanceHealthChecker {
             ...instance,
             healthy: false,
             lastHealthCheck: null,
-            consecutiveFailures: 0,
-            circuitBreakerOpen: false
+            consecutiveFailures: 0
         });
-        console.log(`HealthChecker: Registered instance ${instance.id} (${instance.host})`);
+        
+        // Create circuit breaker for this instance
+        const breaker = circuitBreakerFactory.getBreaker(`health-check-${instance.id}`, {
+            failureThreshold: 3,
+            successThreshold: 2,
+            timeout: this.healthCheckTimeout,
+            resetTimeout: 30000, // Start with 30s
+            maxResetTimeout: 300000, // Max 5 minutes
+            volumeThreshold: 5,
+            errorThresholdPercentage: 60
+        });
+        
+        this.circuitBreakers.set(instance.id, breaker);
+        console.log(`HealthChecker: Registered instance ${instance.id} (${instance.host}) with circuit breaker`);
     }
 
     /**
@@ -30,6 +44,14 @@ class InstanceHealthChecker {
      */
     unregisterInstance(instanceId) {
         this.instances.delete(instanceId);
+        
+        // Clean up circuit breaker
+        const breaker = this.circuitBreakers.get(instanceId);
+        if (breaker) {
+            breaker.destroy();
+            this.circuitBreakers.delete(instanceId);
+        }
+        
         console.log(`HealthChecker: Unregistered instance ${instanceId}`);
     }
 
@@ -45,30 +67,32 @@ class InstanceHealthChecker {
             return false;
         }
 
-        // Circuit breaker logic - fail fast if instance is known to be unhealthy
-        if (instance.circuitBreakerOpen) {
-            const timeSinceLastCheck = Date.now() - (instance.lastHealthCheck || 0);
-            // Try to check after 10 seconds if circuit breaker is open
-            if (timeSinceLastCheck < 10000) {
-                return false;
-            }
+        const breaker = this.circuitBreakers.get(instanceId);
+        if (!breaker) {
+            console.error(`HealthChecker: Circuit breaker not found for ${instanceId}`);
+            return false;
         }
 
         const url = `${instance.protocol}://${instance.host}/system_stats`;
         const startTime = Date.now();
 
         try {
-            const response = await axios.get(url, { 
-                timeout: this.healthCheckTimeout,
-                validateStatus: (status) => status === 200
+            // Use circuit breaker to execute health check
+            await breaker.execute(async () => {
+                const response = await axios.get(url, { 
+                    timeout: this.healthCheckTimeout,
+                    validateStatus: (status) => status === 200
+                });
+                return response;
+            }, { 
+                operation: 'health-check',
+                instance: instance.host 
             });
 
             // Health check succeeded
-            const wasUnhealthy = !instance.healthy || instance.consecutiveFailures > 0;
+            const wasUnhealthy = !instance.healthy;
             instance.healthy = true;
-            instance.consecutiveFailures = 0;
             instance.lastHealthCheck = Date.now();
-            instance.circuitBreakerOpen = false;
 
             if (wasUnhealthy) {
                 console.log(`HealthChecker: Instance ${instance.id} is now HEALTHY (response time: ${Date.now() - startTime}ms)`);
@@ -77,19 +101,21 @@ class InstanceHealthChecker {
             return true;
         } catch (error) {
             // Health check failed
-            instance.consecutiveFailures++;
             instance.lastHealthCheck = Date.now();
 
-            if (instance.consecutiveFailures >= this.maxConsecutiveFailures) {
-                if (instance.healthy) {
-                    console.error(`HealthChecker: Instance ${instance.id} is now UNHEALTHY after ${instance.consecutiveFailures} failures`);
-                }
+            // Check if it's a circuit breaker rejection
+            if (error.code === 'CIRCUIT_BREAKER_OPEN') {
+                // Circuit is open, mark as unhealthy without additional logging
                 instance.healthy = false;
-                instance.circuitBreakerOpen = true;
+                return false;
             }
 
+            // Actual health check failure
             const errorMessage = error.code || error.message || 'Unknown error';
-            console.error(`HealthChecker: Health check failed for ${instance.id}: ${errorMessage} (attempt ${instance.consecutiveFailures}/${this.maxConsecutiveFailures})`);
+            console.error(`HealthChecker: Health check failed for ${instance.id}: ${errorMessage}`);
+            
+            // Mark instance as unhealthy
+            instance.healthy = false;
 
             return false;
         }
@@ -149,13 +175,20 @@ class InstanceHealthChecker {
     getInstancesStatus() {
         const status = [];
         for (const instance of this.instances.values()) {
+            const breaker = this.circuitBreakers.get(instance.id);
+            const breakerStatus = breaker ? breaker.getStatus() : null;
+            
             status.push({
                 id: instance.id,
                 host: instance.host,
                 healthy: instance.healthy,
                 lastHealthCheck: instance.lastHealthCheck,
-                consecutiveFailures: instance.consecutiveFailures,
-                circuitBreakerOpen: instance.circuitBreakerOpen
+                circuitBreaker: breakerStatus ? {
+                    state: breakerStatus.state,
+                    failures: breakerStatus.failures,
+                    nextAttempt: breakerStatus.nextAttempt,
+                    errorRate: breakerStatus.metrics.errorRate
+                } : null
             });
         }
         return status;
@@ -167,12 +200,17 @@ class InstanceHealthChecker {
      */
     markUnhealthy(instanceId) {
         const instance = this.instances.get(instanceId);
+        const breaker = this.circuitBreakers.get(instanceId);
+        
         if (instance) {
             const wasHealthy = instance.healthy;
             instance.healthy = false;
-            instance.consecutiveFailures = this.maxConsecutiveFailures;
-            instance.circuitBreakerOpen = true;
             instance.lastHealthCheck = Date.now();
+            
+            // Force open the circuit breaker
+            if (breaker) {
+                breaker.forceOpen();
+            }
             
             if (wasHealthy) {
                 console.error(`HealthChecker: Instance ${instanceId} marked as UNHEALTHY due to connection error`);
@@ -211,10 +249,16 @@ class InstanceHealthChecker {
             this.healthCheckInterval = null;
             console.log('HealthChecker: Stopped health checks');
         }
+        
+        // Clean up all circuit breakers
+        for (const breaker of this.circuitBreakers.values()) {
+            breaker.destroy();
+        }
+        this.circuitBreakers.clear();
     }
 
     /**
-     * Check health before job submission
+     * Check health before job submission with real-time verification
      * @param {string} instanceId - Instance ID to check
      * @returns {Promise<boolean>} - Whether instance is healthy
      */
@@ -224,13 +268,78 @@ class InstanceHealthChecker {
             return false;
         }
 
-        // If instance is healthy and was checked recently (within 5 seconds), trust the cached status
-        if (instance.healthy && instance.lastHealthCheck && (Date.now() - instance.lastHealthCheck) < 5000) {
+        // If instance is healthy and was checked very recently (within 2 seconds), trust the cached status
+        if (instance.healthy && instance.lastHealthCheck && (Date.now() - instance.lastHealthCheck) < 2000) {
             return true;
         }
 
-        // Otherwise, perform a fresh health check
-        return await this.checkInstanceHealth(instanceId);
+        // Otherwise, perform a fresh health check with faster timeout for job submission
+        return await this.checkInstanceHealthForJob(instanceId);
+    }
+
+    /**
+     * Fast health check specifically for job submission
+     * @param {string} instanceId - Instance ID to check
+     * @returns {Promise<boolean>} - Whether instance is healthy
+     */
+    async checkInstanceHealthForJob(instanceId) {
+        const instance = this.instances.get(instanceId);
+        if (!instance) {
+            console.error(`HealthChecker: Instance ${instanceId} not found for job health check`);
+            return false;
+        }
+
+        const breaker = this.circuitBreakers.get(instanceId);
+        if (!breaker) {
+            console.error(`HealthChecker: Circuit breaker not found for ${instanceId}`);
+            return false;
+        }
+
+        const url = `${instance.protocol}://${instance.host}/system_stats`;
+        const startTime = Date.now();
+
+        try {
+            console.log(`🏥 Pre-job health check for ${instance.host}...`);
+            
+            // Use circuit breaker with faster timeout for job submission
+            await breaker.execute(async () => {
+                const response = await axios.get(url, { 
+                    timeout: 2000, // Faster 2-second timeout for job submission
+                    validateStatus: (status) => status === 200
+                });
+                return response;
+            }, { 
+                operation: 'pre-job-health-check',
+                instance: instance.host 
+            });
+
+            // Health check succeeded
+            const responseTime = Date.now() - startTime;
+            instance.healthy = true;
+            instance.lastHealthCheck = Date.now();
+
+            console.log(`✅ Pre-job health check passed for ${instance.host} (${responseTime}ms)`);
+            return true;
+
+        } catch (error) {
+            // Health check failed
+            instance.lastHealthCheck = Date.now();
+            
+            // Check if it's a circuit breaker rejection
+            if (error.code === 'CIRCUIT_BREAKER_OPEN') {
+                console.warn(`⚡ Circuit breaker open for ${instance.host} - failing fast`);
+                instance.healthy = false;
+                return false;
+            }
+
+            // Actual health check failure
+            const errorMessage = error.code || error.message || 'Unknown error';
+            console.warn(`❌ Pre-job health check failed for ${instance.host}: ${errorMessage}`);
+            
+            // Mark instance as unhealthy
+            instance.healthy = false;
+            return false;
+        }
     }
 }
 

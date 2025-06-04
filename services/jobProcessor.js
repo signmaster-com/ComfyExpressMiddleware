@@ -129,6 +129,10 @@ class JobProcessor {
       // Get available instances
       const availableInstances = await this.getAvailableInstances();
       if (availableInstances.length === 0) {
+        this.logger.warn('No healthy instances available for job processing', {
+          pendingJobs: pendingJobs.length,
+          activeJobs: this.activeProcessingJobs.size
+        });
         return; // No instances available
       }
 
@@ -140,10 +144,18 @@ class JobProcessor {
           continue; // Already processing
         }
 
-        // Find the best available instance
-        const instance = await this.selectBestInstance(availableInstances);
+        // Find the best available instance with real-time health check
+        const instance = await this.selectBestInstanceWithHealthCheck(availableInstances);
         if (!instance) {
-          break; // No more available instances
+          // All instances failed health checks, keep jobs in pending state for retry
+          this.logger.warn('All instances failed pre-job health checks, keeping job pending for retry', {
+            jobId: job.id,
+            jobType: job.type,
+            candidateInstances: availableInstances.length,
+            message: 'Job will remain pending until instances recover or timeout expires'
+          });
+          
+          break; // Stop processing remaining jobs but keep them pending
         }
 
         // Start processing the job
@@ -180,11 +192,11 @@ class JobProcessor {
   }
 
   /**
-   * Select the best instance for job processing (least loaded)
+   * Select the best instance for job processing with pre-job health verification
    * @param {Array} availableInstances - Available instances
-   * @returns {Object|null} Best instance or null
+   * @returns {Promise<Object|null>} Best instance or null
    */
-  async selectBestInstance(availableInstances) {
+  async selectBestInstanceWithHealthCheck(availableInstances) {
     if (availableInstances.length === 0) {
       return null;
     }
@@ -195,7 +207,64 @@ class JobProcessor {
       currentJobs: this.instanceJobCounts.get(instance.host) || 0
     })).sort((a, b) => a.currentJobs - b.currentJobs);
 
-    return sortedInstances[0];
+    const loadBalancer = getLoadBalancer();
+    
+    // Try each instance in order until we find one that passes pre-job health check
+    for (const instance of sortedInstances) {
+      const isHealthy = await loadBalancer.healthChecker.checkBeforeJob(instance.id);
+      
+      if (isHealthy) {
+        this.logger.debug('Selected instance after health check', {
+          instanceId: instance.id,
+          host: instance.host,
+          currentJobs: instance.currentJobs
+        });
+        return instance;
+      } else {
+        this.logger.warn('Instance failed pre-job health check', {
+          instanceId: instance.id,
+          host: instance.host
+        });
+      }
+    }
+    
+    return null; // All instances failed health check
+  }
+
+  /**
+   * Select the best instance for job processing (least loaded) - legacy method
+   * @param {Array} availableInstances - Available instances
+   * @returns {Object|null} Best instance or null
+   */
+  async selectBestInstance(availableInstances) {
+    // Delegate to the new method with health checks
+    return await this.selectBestInstanceWithHealthCheck(availableInstances);
+  }
+
+  /**
+   * Mark a job as failed due to no healthy instances being available
+   * Note: This method is preserved for potential manual failure scenarios,
+   * but normal processing now keeps jobs pending when instances are unhealthy
+   * @param {Object} job - Job to fail
+   */
+  failJobDueToNoHealthyInstances(job) {
+    const jobManager = getJobManager();
+    const metrics = getMetrics();
+    
+    // Update job status to failed
+    jobManager.updateJobStatus(job.id, 'failed', {
+      error: 'No healthy ComfyUI instances available',
+      errorCode: 'NO_HEALTHY_INSTANCES',
+      failedTime: Date.now()
+    });
+    
+    // Record failure in metrics
+    metrics.recordJobCompleted(job.type, 'none', 0, false, 'No healthy instances available');
+    
+    this.logger.error('Job manually failed due to no healthy instances', {
+      jobId: job.id,
+      jobType: job.type
+    });
   }
 
   /**

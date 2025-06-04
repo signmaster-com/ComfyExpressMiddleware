@@ -45,7 +45,7 @@ class ComfyUILoadBalancer {
   }
   
   /**
-   * Get the least loaded healthy instance
+   * Get the least loaded healthy instance with pre-job health verification
    * @returns {Promise<Object|null>} The available instance or null if none available
    */
   async getAvailableInstance() {
@@ -60,29 +60,43 @@ class ComfyUILoadBalancer {
     const healthyInstanceIds = this.healthChecker.getHealthyInstances().map(i => i.id);
     
     if (healthyInstanceIds.length === 0) {
-      console.error('No healthy ComfyUI instances available');
+      console.error('❌ No healthy ComfyUI instances available from periodic health checks');
       return null;
     }
     
     // Get full instance objects and sort by active jobs
-    const healthyInstances = healthyInstanceIds
+    const candidateInstances = healthyInstanceIds
       .map(id => this.instances.get(id))
       .filter(Boolean)
       .sort((a, b) => a.activeJobs - b.activeJobs);
     
-    const selectedInstance = healthyInstances[0];
+    console.log(`🔍 Checking ${candidateInstances.length} candidate instances for job assignment...`);
     
-    // Perform health check before job submission
-    const isHealthy = await this.healthChecker.checkBeforeJob(selectedInstance.id);
-    if (!isHealthy) {
-      console.warn(`Instance ${selectedInstance.id} failed pre-job health check, retrying with next instance...`);
-      // Remove this instance from the list and try again
-      healthyInstances.shift();
-      return healthyInstances.length > 0 ? healthyInstances[0] : null;
+    // Try each instance in order until we find one that passes pre-job health check
+    for (let i = 0; i < candidateInstances.length; i++) {
+      const instance = candidateInstances[i];
+      
+      console.log(`🧪 Testing instance ${instance.id} (${instance.host}) - ${instance.activeJobs} active jobs`);
+      
+      // Perform real-time health check before job submission
+      const isHealthy = await this.healthChecker.checkBeforeJob(instance.id);
+      
+      if (isHealthy) {
+        console.log(`✅ Selected instance ${instance.id} (${instance.host}) after pre-job health check`);
+        return instance;
+      } else {
+        console.warn(`❌ Instance ${instance.id} (${instance.host}) failed pre-job health check, trying next...`);
+        
+        // Record the failure in metrics
+        const metrics = getMetrics();
+        if (metrics && metrics.recordJobCompleted) {
+          metrics.recordJobCompleted('health-check', instance.host, 0, false, 'Pre-job health check failed');
+        }
+      }
     }
     
-    console.log(`Selected instance ${selectedInstance.id} (${selectedInstance.host}) with ${selectedInstance.activeJobs} active jobs`);
-    return selectedInstance;
+    console.error('❌ All candidate instances failed pre-job health checks');
+    return null;
   }
   
   /**
@@ -179,7 +193,7 @@ class ComfyUILoadBalancer {
       instances[id] = {
         host: instance.host,
         activeJobs: instance.activeJobs,
-        isHealthy: this.healthChecker.isInstanceHealthy(id)
+        isHealthy: this.healthChecker.isHealthy(id)
       };
     }
     
