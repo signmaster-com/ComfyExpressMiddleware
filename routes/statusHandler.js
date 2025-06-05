@@ -44,18 +44,15 @@ async function getSystemHealth(req, res) {
     // Check instance health
     if (healthyInstances.length === 0) {
       systemStatus = 'critical';
-      statusCode = 503;
       healthIssues.push('No healthy ComfyUI instances available');
     } else if (healthyInstances.length < totalInstances) {
       systemStatus = 'degraded';
-      statusCode = 503;
       healthIssues.push(`${totalInstances - healthyInstances.length} of ${totalInstances} ComfyUI instances unhealthy`);
     }
     
     // Check job processor
     if (!processorStats.isRunning) {
       systemStatus = 'critical';
-      statusCode = 503;
       healthIssues.push('Job processor not running');
     }
     
@@ -63,7 +60,6 @@ async function getSystemHealth(req, res) {
     const errorRate = parseFloat(metricsStats.jobs.error_rate.replace('%', ''));
     if (errorRate > 20 && metricsStats.jobs.total > 10) {
       if (systemStatus === 'healthy') systemStatus = 'degraded';
-      if (statusCode === 200) statusCode = 503;
       healthIssues.push(`High error rate: ${metricsStats.jobs.error_rate}`);
     }
     
@@ -250,7 +246,7 @@ async function getQuickStatus(req, res) {
       processor_running: processorStats.isRunning
     };
     
-    const statusCode = status === 'healthy' ? 200 : 503;
+    const statusCode = 200;
     return res.status(statusCode).json(quickStatus);
     
   } catch (error) {

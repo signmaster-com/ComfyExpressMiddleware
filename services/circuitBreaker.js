@@ -21,13 +21,13 @@ class CircuitBreaker extends EventEmitter {
     // Set max listeners to prevent memory leak warnings
     this.setMaxListeners(20);
     
-    // Configuration with sensible defaults
+    // Configuration optimized for ComfyUI GPU services
     this.name = options.name || 'CircuitBreaker';
-    this.failureThreshold = options.failureThreshold || 5;        // Open after 5 failures
+    this.failureThreshold = options.failureThreshold || 3;        // Open after 3 failures (faster detection)
     this.successThreshold = options.successThreshold || 2;        // Close after 2 successes in half-open
     this.timeout = options.timeout || 30000;                      // 30 second timeout
-    this.resetTimeout = options.resetTimeout || 60000;            // Initial reset timeout (1 minute)
-    this.maxResetTimeout = options.maxResetTimeout || 300000;     // Max reset timeout (5 minutes)
+    this.resetTimeout = options.resetTimeout || 15000;            // Initial reset timeout (15 seconds for GPU services)
+    this.maxResetTimeout = options.maxResetTimeout || 120000;     // Max reset timeout (2 minutes, down from 5)
     this.volumeThreshold = options.volumeThreshold || 10;         // Min requests before opening
     this.errorThresholdPercentage = options.errorThresholdPercentage || 50; // Open if 50% errors
     
@@ -264,7 +264,7 @@ class CircuitBreaker extends EventEmitter {
     this.state = STATES.OPEN;
     this.successes = 0;
     
-    // Apply exponential backoff
+    // Apply modest exponential backoff optimized for GPU services
     this.nextAttempt = Date.now() + this.currentResetTimeout;
     
     // Clear any existing timer
@@ -280,9 +280,9 @@ class CircuitBreaker extends EventEmitter {
       });
     }, this.currentResetTimeout);
     
-    // Increase timeout for next failure (exponential backoff)
+    // Increase timeout for next failure (moderate backoff: 1.5x instead of 2x)
     this.currentResetTimeout = Math.min(
-      this.currentResetTimeout * 2,
+      Math.ceil(this.currentResetTimeout * 1.5),
       this.maxResetTimeout
     );
     
