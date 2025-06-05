@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const multer = require('multer');
 const { requestLoggerMiddleware } = require('./middleware/requestLogger.js');
 const { logger } = require('./utils/logger.js');
@@ -46,7 +47,32 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
+// CORS configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'https://signmaster.com',
+      'http://signdroid.signmaster.local',
+      'http://signdroid.smdev.local'
+    ];
+    
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+  exposedHeaders: ['X-Request-ID']
+};
+
 // Middleware
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(requestLoggerMiddleware);
 
