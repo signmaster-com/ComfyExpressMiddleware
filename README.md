@@ -391,18 +391,6 @@ curl -X POST http://localhost:3000/api/jobs/cleanup
 curl http://localhost:3000/api/metrics/performance
 ```
 
-## 📄 License
-
-ISC License - see LICENSE file for details.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
 ## 📚 Additional Documentation
 
 - [API Reference](./documentation/API_Reference.md) - Complete API specification with examples
