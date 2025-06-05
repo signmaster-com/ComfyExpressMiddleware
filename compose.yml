@@ -8,22 +8,38 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000" # Assuming your app runs on port 3000 inside the container
+      - "3001:3000" # Assuming your app runs on port 3000 inside the container
     networks:
       - comfy_network
     restart: unless-stopped
     environment:
+      # Server Configuration
       - PORT=3000
+      - LOG_LEVEL=info
+      # ComfyUI Configuration
       - COMFYUI_HOST=192.168.1.19:8188
       - COMFYUI_USE_SSL=false
-      # Add any other necessary environment variables
-    volumes: # Optional: for local development to see code changes without rebuilding image
-      - ./server.js:/usr/src/app/server.js
-      - ./app.js:/usr/src/app/app.js
-      - ./workflows.js:/usr/src/app/workflows.js
-      - ./imageUtils.js:/usr/src/app/imageUtils.js
-      - ./comfyuiService.js:/usr/src/app/comfyuiService.js
-      - ./routes:/usr/src/app/routes
+      - OUTPUT_FILES=false
+      # Multiple ComfyUI instances for load balancing
+      - COMFYUI_HOST_1=192.168.1.19:8188
+      - COMFYUI_HOST_2=192.168.1.19:8189
+      # Job Management Configuration
+      - MAX_CONNECTIONS_PER_INSTANCE=3
+      - JOB_TIMEOUT=300000
+      - JOB_CLEANUP_INTERVAL=600000
+      - MAX_CONCURRENT_JOBS=4
+      - MAX_JOBS_PER_INSTANCE=2
+      - JOB_PROCESSING_INTERVAL=1000
+      # Metrics Configuration
+      - METRICS_FILE_PATH=./data/metrics.json
+      - METRICS_SAVE_INTERVAL=300000
+    # volumes: # Optional: for local development to see code changes without rebuilding image
+    #   - ./server.js:/usr/src/app/server.js
+    #   - ./app.js:/usr/src/app/app.js
+    #   - ./workflows.js:/usr/src/app/workflows.js
+    #   - ./imageUtils.js:/usr/src/app/imageUtils.js
+    #   - ./comfyuiService.js:/usr/src/app/comfyuiService.js
+    #   - ./routes:/usr/src/app/routes
 
 # You can optionally define your ComfyUI service here too if you run it via Docker
 # services:

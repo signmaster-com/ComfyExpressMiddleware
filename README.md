@@ -127,9 +127,13 @@ PORT=3000                          # Server port
 LOG_LEVEL=info                     # Logging level (error, warn, info, debug)
 
 # ComfyUI Configuration
-COMFYUI_HOST=192.168.1.19:8188     # Primary ComfyUI instance
+COMFYUI_HOST=192.168.1.19:8188     # Default/fallback ComfyUI instance
 COMFYUI_USE_SSL=false              # Use HTTPS for ComfyUI connections
 OUTPUT_FILES=false                 # Save generated images to disk
+
+# Multiple ComfyUI Instances for Load Balancing
+COMFYUI_HOST_1=localhost:8188      # First ComfyUI instance
+COMFYUI_HOST_2=localhost:8189      # Second ComfyUI instance
 
 # Connection Management
 MAX_CONNECTIONS_PER_INSTANCE=3     # WebSocket connections per instance
@@ -148,9 +152,10 @@ METRICS_SAVE_INTERVAL=300000       # Auto-save interval (5 minutes)
 
 ### Multiple ComfyUI Instances
 
-Configure multiple instances by setting `COMFYUI_HOST` to a comma-separated list:
+Configure multiple instances using separate environment variables:
 ```env
-COMFYUI_HOST=192.168.1.19:8188,192.168.1.20:8188
+COMFYUI_HOST_1=192.168.1.19:8188
+COMFYUI_HOST_2=192.168.1.20:8188
 ```
 
 ## 📋 API Reference

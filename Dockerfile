@@ -12,9 +12,10 @@ RUN npm install --omit=dev --no-optional
 COPY server.js .
 COPY app.js .
 COPY workflows.js .
-COPY utils/imageUtils.js .
-COPY services/comfyuiService.js .
 COPY routes ./routes
+COPY services ./services
+COPY utils ./utils
+COPY middleware ./middleware
 
 # Set production environment
 ENV NODE_ENV=production
