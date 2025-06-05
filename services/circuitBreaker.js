@@ -18,6 +18,9 @@ class CircuitBreaker extends EventEmitter {
   constructor(options = {}) {
     super();
     
+    // Set max listeners to prevent memory leak warnings
+    this.setMaxListeners(20);
+    
     // Configuration with sensible defaults
     this.name = options.name || 'CircuitBreaker';
     this.failureThreshold = options.failureThreshold || 5;        // Open after 5 failures
@@ -179,6 +182,12 @@ class CircuitBreaker extends EventEmitter {
   onFailure(error, context = {}) {
     this.failures++;
     
+    // Mark last request as error
+    if (this._lastRequest) {
+      this._lastRequest.error = true;
+      this._lastRequest = null; // Clear reference
+    }
+    
     // Log the failure with context
     this.logger.warn('Request failed', {
       name: this.name,
@@ -238,18 +247,14 @@ class CircuitBreaker extends EventEmitter {
    * Record a request for volume tracking
    */
   recordRequest() {
-    this.requests.push({
+    const request = {
       timestamp: Date.now(),
       error: false
-    });
+    };
+    this.requests.push(request);
     
-    // Mark last request as error on failure
-    this.once('failure', () => {
-      const lastRequest = this.requests[this.requests.length - 1];
-      if (lastRequest) {
-        lastRequest.error = true;
-      }
-    });
+    // Store reference to this request for failure marking
+    this._lastRequest = request;
   }
 
   /**
@@ -354,6 +359,17 @@ class CircuitBreaker extends EventEmitter {
       clearTimeout(this.resetTimer);
       this.resetTimer = null;
     }
+    
+    // Remove factory listeners first if they exist
+    if (this._factoryListeners) {
+      this.removeListener('open', this._factoryListeners.openListener);
+      this.removeListener('close', this._factoryListeners.closeListener);
+      delete this._factoryListeners;
+    }
+    
+    // Clear last request reference
+    this._lastRequest = null;
+    
     this.removeAllListeners();
   }
 }
@@ -378,14 +394,20 @@ class CircuitBreakerFactory {
       const breaker = new CircuitBreaker({ name, ...options });
       this.breakers.set(name, breaker);
       
-      // Log state changes
-      breaker.on('open', () => {
+      // Store listener references for cleanup
+      const openListener = () => {
         this.logger.error(`Circuit breaker ${name} opened`);
-      });
+      };
       
-      breaker.on('close', () => {
+      const closeListener = () => {
         this.logger.info(`Circuit breaker ${name} closed`);
-      });
+      };
+      
+      breaker.on('open', openListener);
+      breaker.on('close', closeListener);
+      
+      // Store listeners for cleanup
+      breaker._factoryListeners = { openListener, closeListener };
     }
     
     return this.breakers.get(name);

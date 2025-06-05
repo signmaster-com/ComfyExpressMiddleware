@@ -1,9 +1,7 @@
-networks:
-  comfy_network:
-    driver: bridge
-
 services:
   comfyui-middleware:
+    container_name: orangebox_api
+    image: ghcr.io/signmaster-com/orangebox_api:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -33,21 +31,14 @@ services:
       # Metrics Configuration
       - METRICS_FILE_PATH=./data/metrics.json
       - METRICS_SAVE_INTERVAL=300000
-    # volumes: # Optional: for local development to see code changes without rebuilding image
+    #volumes:
+    #  - ./Output:/usr/src/app/data/output
     #   - ./server.js:/usr/src/app/server.js
     #   - ./app.js:/usr/src/app/app.js
     #   - ./workflows.js:/usr/src/app/workflows.js
     #   - ./imageUtils.js:/usr/src/app/imageUtils.js
     #   - ./comfyuiService.js:/usr/src/app/comfyuiService.js
     #   - ./routes:/usr/src/app/routes
-
-# You can optionally define your ComfyUI service here too if you run it via Docker
-# services:
-#   comfyui:
-#     image: <your_comfyui_docker_image> # e.g., comfyui/comfyui or a custom build
-#     ports:
-#       - "8188:8188"
-#     networks:
-#       - comfy_network
-#     # Add volumes for models, custom nodes, etc.
-#     # Add GPU capabilities if needed: deploy: { resources: { reservations: { devices: [ { driver: 'nvidia', count: 1, capabilities: [gpu] } ] } } }
+networks:
+  comfy_network:
+    driver: bridge

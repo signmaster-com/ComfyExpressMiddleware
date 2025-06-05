@@ -21,8 +21,8 @@ const jobManager = getJobManager();
 const jobProcessor = getJobProcessor();
 const metrics = getMetrics();
 
-// Start the server
-app.listen(PORT, () => {
+// Start the server - bind to all interfaces (0.0.0.0) for Docker
+app.listen(PORT, '0.0.0.0', () => {
   serverLogger.info('Server started successfully', {
     port: PORT,
     comfyuiHost: process.env.COMFYUI_HOST || '192.168.1.19:8188',

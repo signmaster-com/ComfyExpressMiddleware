@@ -8,6 +8,9 @@ const EventEmitter = require('events');
 class PooledConnection extends EventEmitter {
   constructor(host, useSSL = false) {
     super();
+    
+    // Set max listeners to prevent memory leak warnings
+    this.setMaxListeners(20);
     this.id = uuidv4();
     this.host = host;
     this.useSSL = useSSL;
@@ -151,6 +154,9 @@ class PooledConnection extends EventEmitter {
 class ConnectionPool extends EventEmitter {
   constructor(host, maxConnections = 3, useSSL = false) {
     super();
+    
+    // Set max listeners to prevent memory leak warnings
+    this.setMaxListeners(50);
     this.host = host;
     this.maxConnections = maxConnections;
     this.useSSL = useSSL;
@@ -321,6 +327,9 @@ class ConnectionPool extends EventEmitter {
 class ComfyUIConnectionManager extends EventEmitter {
   constructor() {
     super();
+    
+    // Set max listeners to prevent memory leak warnings
+    this.setMaxListeners(30);
     this.pools = new Map();
     
     // Validate and set configuration
