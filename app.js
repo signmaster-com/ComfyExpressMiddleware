@@ -5,6 +5,7 @@ const { requestLoggerMiddleware } = require('./middleware/requestLogger.js');
 const { logger } = require('./utils/logger.js');
 const { handleRemoveBackground } = require('./routes/removeBackgroundHandler.js');
 const { handleUpscaleImage } = require('./routes/upscaleImageHandler.js');
+const { upscaleRemoveBGHandler } = require('./routes/upscaleRemoveBGHandler.js');
 const { 
   getJobStatus, 
   getAllJobs, 
@@ -16,6 +17,7 @@ const {
 const {
   handleRemoveBackgroundAsync,
   handleUpscaleImageAsync,
+  handleUpscaleRemoveBGAsync,
   getJobStatus: getAsyncJobStatus,
   getJobResult
 } = require('./routes/asyncJobHandler.js');
@@ -79,10 +81,12 @@ app.use(requestLoggerMiddleware);
 // Routes - Processing endpoints (with backward compatibility)
 app.post('/api/remove-background', upload.single('imageFile'), handleRemoveBackground);
 app.post('/api/upscale-image', upload.single('imageFile'), handleUpscaleImage);
+app.post('/api/upscale-remove-bg', upload.single('imageFile'), upscaleRemoveBGHandler);
 
 // Async-specific routes (dedicated async endpoints)
 app.post('/api/async/remove-background', upload.single('imageFile'), handleRemoveBackgroundAsync);
 app.post('/api/async/upscale-image', upload.single('imageFile'), handleUpscaleImageAsync);
+app.post('/api/async/upscale-remove-bg', upload.single('imageFile'), handleUpscaleRemoveBGAsync);
 
 // Job status and result endpoints (async API)
 app.get('/api/jobs/:job_id/status', getAsyncJobStatus);

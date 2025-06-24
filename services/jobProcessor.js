@@ -1,7 +1,7 @@
 const { getJobManager } = require('./jobManager');
 const { getLoadBalancer } = require('./loadBalancer');
 const { executeWorkflow } = require('./comfyuiService');
-const { getRemoveBackgroundWorkflow, getUpscaleImageWorkflow } = require('../workflows');
+const { getRemoveBackgroundWorkflow, getUpscaleImageWorkflow, getUpscaleRemoveBGWorkflow } = require('../workflows');
 const { getMetrics } = require('./metrics');
 const { createServiceLogger, createJobLogger } = require('../utils/logger');
 const fs = require('fs').promises;
@@ -33,6 +33,10 @@ class JobProcessor {
       'upscale-image': {
         workflow: getUpscaleImageWorkflow,
         targetNode: '10'
+      },
+      'upscale-remove-bg': {
+        workflow: getUpscaleRemoveBGWorkflow,
+        targetNode: '8'
       }
     };
     
@@ -373,7 +377,17 @@ class JobProcessor {
     }
 
     // Get workflow and execute
-    const workflow = workflowConfig.workflow();
+    // Check if this workflow type needs parameters
+    let workflow;
+    if (job.type === 'upscale-remove-bg' && jobData.format) {
+      this.logger.debug('Using format parameter for upscale-remove-bg workflow', {
+        jobId: job.id,
+        format: jobData.format
+      });
+      workflow = workflowConfig.workflow(jobData.format);
+    } else {
+      workflow = workflowConfig.workflow();
+    }
     const targetNode = workflowConfig.targetNode;
 
     try {
@@ -497,7 +511,7 @@ class JobProcessor {
             rejectWithCleanup(new Error('Workflow execution timed out'));
             resolved = true;
           }
-        }, 60000); // 60 second timeout
+        }, 180000); // 180 second timeout
         
         // Message handler
         const messageHandler = async (data) => {
@@ -512,7 +526,7 @@ class JobProcessor {
                 
                 // Fetch results
                 try {
-                  const result = await this.fetchWorkflowResults(comfyUrl, promptId, targetNode);
+                  const result = await this.fetchWorkflowResults(comfyUrl, promptId, targetNode, jobId);
                   resolveWithCleanup(result);
                   resolved = true;
                 } catch (fetchError) {
@@ -529,7 +543,7 @@ class JobProcessor {
                 clearTimeout(timeoutId);
                 
                 try {
-                  const result = await this.fetchWorkflowResults(comfyUrl, promptId, targetNode);
+                  const result = await this.fetchWorkflowResults(comfyUrl, promptId, targetNode, jobId);
                   resolveWithCleanup(result);
                   resolved = true;
                 } catch (fetchError) {
@@ -562,9 +576,10 @@ class JobProcessor {
    * @param {string} comfyUrl - ComfyUI base URL
    * @param {string} promptId - Prompt ID
    * @param {string} targetNode - Target node ID
+   * @param {string} jobId - Job ID for output folder naming
    * @returns {Promise<Object>} Result data
    */
-  async fetchWorkflowResults(comfyUrl, promptId, targetNode) {
+  async fetchWorkflowResults(comfyUrl, promptId, targetNode, jobId) {
     const axios = require('axios');
     
     // Wait a bit for results to be saved
@@ -612,7 +627,7 @@ class JobProcessor {
     
     // Save file if OUTPUT_FILES is enabled
     if (process.env.OUTPUT_FILES === 'true') {
-      const outputDir = path.join(process.cwd(), 'data', 'outputs', promptId);
+      const outputDir = path.join(process.cwd(), 'data', 'outputs', jobId);
       try {
         await fs.mkdir(outputDir, { recursive: true });
         const fileName = imageInfo.filename;

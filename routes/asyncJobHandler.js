@@ -109,6 +109,73 @@ async function handleUpscaleImageAsync(req, res) {
 }
 
 /**
+ * Asynchronous route handler for upscaling and removing background from images
+ * Returns job ID immediately and processes in background
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+async function handleUpscaleRemoveBGAsync(req, res) {
+  // Check if file exists
+  if (!req.file) {
+    return res.status(400).json({ error: 'No image file provided.' });
+  }
+  
+  // Extract file data
+  const { buffer, mimetype } = req.file;
+  
+  try {
+    // Convert buffer to base64
+    let imageBase64;
+    try {
+      imageBase64 = fileBufferToBase64(buffer, mimetype);
+    } catch (conversionError) {
+      console.error('Failed to convert image to base64:', conversionError);
+      return res.status(400).json({ error: 'Failed to convert image to base64.' });
+    }
+    
+    // Extract format parameter from request body or query, default to PNG
+    const format = (req.body.format || req.query.format || 'PNG').toUpperCase();
+    
+    // Validate format
+    const validFormats = ['PNG', 'JPEG', 'WEBP'];
+    if (!validFormats.includes(format)) {
+      return res.status(400).json({
+        error: 'Invalid format',
+        details: `Format must be one of: ${validFormats.join(', ')}`
+      });
+    }
+    
+    // Add job to processor queue
+    const jobProcessor = getJobProcessor();
+    const jobId = jobProcessor.addJob('upscale-remove-bg', {
+      imageBase64: imageBase64,
+      imageSize: buffer.length,
+      mimeType: mimetype,
+      originalFilename: req.file.originalname,
+      format: format
+    });
+    
+    // Return job ID immediately with 202 Accepted
+    res.status(202).json({
+      job_id: jobId,
+      status: 'pending',
+      message: 'Job submitted successfully. Use /api/jobs/{job_id}/status to track progress.',
+      estimated_completion_time: '60-180 seconds',
+      status_url: `/api/jobs/${jobId}/status`,
+      result_url: `/api/jobs/${jobId}/result`,
+      format: format
+    });
+    
+  } catch (error) {
+    console.error('Unexpected error in handleUpscaleRemoveBGAsync:', error);
+    return res.status(500).json({
+      error: 'An unexpected error occurred.',
+      details: error.message
+    });
+  }
+}
+
+/**
  * Get job status with progress information
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -265,6 +332,8 @@ function getEstimatedDuration(workflowType) {
       return 45; // 45 seconds
     case 'upscale-image':
       return 60; // 60 seconds
+    case 'upscale-remove-bg':
+      return 90; // 90 seconds (combines both operations)
     default:
       return 30; // Default 30 seconds
   }
@@ -273,6 +342,7 @@ function getEstimatedDuration(workflowType) {
 module.exports = {
   handleRemoveBackgroundAsync,
   handleUpscaleImageAsync,
+  handleUpscaleRemoveBGAsync,
   getJobStatus,
   getJobResult
 };
