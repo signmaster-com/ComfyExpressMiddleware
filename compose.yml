@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3001:3000" # Assuming your app runs on port 3000 inside the container
+      - "3002:3000" # Assuming your app runs on port 3000 inside the container
     networks:
       - comfy_network
     restart: unless-stopped

@@ -27,13 +27,26 @@ async function handleRemoveBackgroundAsync(req, res) {
       return res.status(400).json({ error: 'Failed to convert image to base64.' });
     }
     
+    // Extract format parameter from request body or query, default to PNG
+    const format = (req.body.format || req.query.format || 'PNG').toUpperCase();
+    
+    // Validate format
+    const validFormats = ['PNG', 'JPEG', 'WEBP'];
+    if (!validFormats.includes(format)) {
+      return res.status(400).json({
+        error: 'Invalid format',
+        details: `Format must be one of: ${validFormats.join(', ')}`
+      });
+    }
+    
     // Add job to processor queue
     const jobProcessor = getJobProcessor();
     const jobId = jobProcessor.addJob('remove-background', {
       imageBase64: imageBase64,
       imageSize: buffer.length,
       mimeType: mimetype,
-      originalFilename: req.file.originalname
+      originalFilename: req.file.originalname,
+      format: format
     });
     
     // Return job ID immediately with 202 Accepted
@@ -43,7 +56,8 @@ async function handleRemoveBackgroundAsync(req, res) {
       message: 'Job submitted successfully. Use /api/jobs/{job_id}/status to track progress.',
       estimated_completion_time: '30-60 seconds',
       status_url: `/api/jobs/${jobId}/status`,
-      result_url: `/api/jobs/${jobId}/result`
+      result_url: `/api/jobs/${jobId}/result`,
+      format: format
     });
     
   } catch (error) {
@@ -80,13 +94,26 @@ async function handleUpscaleImageAsync(req, res) {
       return res.status(400).json({ error: 'Failed to convert image to base64.' });
     }
     
+    // Extract format parameter from request body or query, default to PNG
+    const format = (req.body.format || req.query.format || 'PNG').toUpperCase();
+    
+    // Validate format
+    const validFormats = ['PNG', 'JPEG', 'WEBP'];
+    if (!validFormats.includes(format)) {
+      return res.status(400).json({
+        error: 'Invalid format',
+        details: `Format must be one of: ${validFormats.join(', ')}`
+      });
+    }
+    
     // Add job to processor queue
     const jobProcessor = getJobProcessor();
     const jobId = jobProcessor.addJob('upscale-image', {
       imageBase64: imageBase64,
       imageSize: buffer.length,
       mimeType: mimetype,
-      originalFilename: req.file.originalname
+      originalFilename: req.file.originalname,
+      format: format
     });
     
     // Return job ID immediately with 202 Accepted
@@ -96,7 +123,8 @@ async function handleUpscaleImageAsync(req, res) {
       message: 'Job submitted successfully. Use /api/jobs/{job_id}/status to track progress.',
       estimated_completion_time: '45-90 seconds',
       status_url: `/api/jobs/${jobId}/status`,
-      result_url: `/api/jobs/${jobId}/result`
+      result_url: `/api/jobs/${jobId}/result`,
+      format: format
     });
     
   } catch (error) {

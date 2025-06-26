@@ -35,8 +35,20 @@ async function handleRemoveBackground(req, res) {
       return res.status(500).json({ error: 'Failed to convert image to base64.' });
     }
     
+    // Extract format parameter from request body or query, default to PNG
+    const format = (req.body.format || req.query.format || 'PNG').toUpperCase();
+    
+    // Validate format
+    const validFormats = ['PNG', 'JPEG', 'WEBP'];
+    if (!validFormats.includes(format)) {
+      return res.status(400).json({
+        error: 'Invalid format',
+        details: `Format must be one of: ${validFormats.join(', ')}`
+      });
+    }
+    
     // Get the workflow
-    const workflow = getRemoveBackgroundWorkflow();
+    const workflow = getRemoveBackgroundWorkflow(format);
     
     // Execute the workflow
     try {
@@ -44,7 +56,8 @@ async function handleRemoveBackground(req, res) {
       return res.status(200).json({ 
         imageBase64: result.base64,
         promptId: result.promptId,
-        jobId: result.jobId
+        jobId: result.jobId,
+        format: format
       });
     } catch (workflowError) {
       console.error('Failed to process image for background removal:', workflowError);

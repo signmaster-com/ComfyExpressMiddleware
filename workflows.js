@@ -4,7 +4,7 @@
 /**
  * Remove Background workflow for removing image background
  */
-function getRemoveBackgroundWorkflow(){
+function getRemoveBackgroundWorkflow(format = 'PNG'){
     return {
         "2": {
             "inputs": {
@@ -43,22 +43,34 @@ function getRemoveBackgroundWorkflow(){
         },
         "17": {
             "inputs": {
-                "filename_prefix": "removedbg",
+                "format": format,
+                "quality": 85,
+                "resize_factor": 1,
+                "compression_level": 6,
+                "save_image": true,
+                "output_prefix": "removedbg_",
+                "output_path": "",
                 "images": ["2", 0]
             },
-            "class_type": "SaveImage",
+            "class_type": "ImageCompressor",
             "_meta": {
-                "title": "Save Image - Background Removed"
+                "title": "🐟Image Compressor - Background Removed"
             }
         },
         "18": {
             "inputs": {
-                "filename_prefix": "mask",
+                "format": format,
+                "quality": 85,
+                "resize_factor": 1,
+                "compression_level": 6,
+                "save_image": true,
+                "output_prefix": "mask_",
+                "output_path": "",
                 "images": ["4", 0]
             },
-            "class_type": "SaveImage",
+            "class_type": "ImageCompressor",
             "_meta": {
-                "title": "Save Image - Mask"
+                "title": "🐟Image Compressor - Mask"
             }
         }
     };
@@ -67,8 +79,18 @@ function getRemoveBackgroundWorkflow(){
 /**
  * Upscale Image workflow for enhancing images by up scaling
  */
-function getUpscaleImageWorkflow(){
+function getUpscaleImageWorkflow(format = 'PNG'){
     return {
+        "2": {
+            "inputs": {
+                "image": ""
+            },
+            "class_type": "ETN_LoadImageBase64",
+            "_meta": {
+                "title": "Load Image (Base64)",
+                "name" : "InputImageBase64"
+            }
+        },
         "3": {
             "inputs": {
                 "model_name": "4x_NMKD-Siax_200k.pth"
@@ -85,7 +107,7 @@ function getUpscaleImageWorkflow(){
                     0
                 ],
                 "image": [
-                    "8",
+                    "2",
                     0
                 ]
             },
@@ -94,10 +116,29 @@ function getUpscaleImageWorkflow(){
                 "title": "Upscale Image (using Model)"
             }
         },
-        "7": {
+        "8": {
             "inputs": {
-                "upscale_method": "bicubic",
-                "scale_by": 0.2500000000000001,
+                "format": format,
+                "quality": 85,
+                "resize_factor": 1,
+                "compression_level": 6,
+                "save_image": true,
+                "output_prefix": "compressed_",
+                "output_path": "",
+                "images": [
+                    "13",
+                    0
+                ]
+            },
+            "class_type": "ImageCompressor",
+            "_meta": {
+                "title": "🐟Image Compressor"
+            }
+        },
+        "13": {
+            "inputs": {
+                "upscale_method": "bilinear",
+                "scale_by": 0.5000000000000001,
                 "image": [
                     "5",
                     0
@@ -106,29 +147,6 @@ function getUpscaleImageWorkflow(){
             "class_type": "ImageScaleBy",
             "_meta": {
                 "title": "Upscale Image By"
-            }
-        },
-        "8": {
-            "inputs": {
-                "image": ""
-            },
-            "class_type": "ETN_LoadImageBase64",
-            "_meta": {
-                "title": "Load Image (Base64)",
-                "name" : "InputImageBase64"
-            }
-        },
-        "10": {
-            "inputs": {
-                "filename_prefix": "upscaled",
-                "images": [
-                    "7",
-                    0
-                ]
-            },
-            "class_type": "SaveImage",
-            "_meta": {
-                "title": "Save Image - Upscaled"
             }
         }
     };

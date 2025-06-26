@@ -377,16 +377,18 @@ class JobProcessor {
     }
 
     // Get workflow and execute
-    // Check if this workflow type needs parameters
+    // Check if format parameter is provided
     let workflow;
-    if (job.type === 'upscale-remove-bg' && jobData.format) {
-      this.logger.debug('Using format parameter for upscale-remove-bg workflow', {
+    if (jobData.format) {
+      this.logger.debug('Using format parameter for workflow', {
         jobId: job.id,
+        jobType: job.type,
         format: jobData.format
       });
       workflow = workflowConfig.workflow(jobData.format);
     } else {
-      workflow = workflowConfig.workflow();
+      // Default to PNG if no format specified
+      workflow = workflowConfig.workflow('PNG');
     }
     const targetNode = workflowConfig.targetNode;
 
