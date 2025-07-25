@@ -1,6 +1,6 @@
 const { fileBufferToBase64 } = require('../utils/imageUtils');
 const { executeWorkflow } = require('../services/comfyuiService');
-const { getRemoveBackgroundWorkflow } = require('../workflows');
+const { getRemoveBackgroundWorkflow, getRemoveBackgroundAndCropWorkflow } = require('../workflows');
 const { handleRemoveBackgroundAsync } = require('./asyncJobHandler');
 
 /**
@@ -47,17 +47,26 @@ async function handleRemoveBackground(req, res) {
       });
     }
     
-    // Get the workflow
-    const workflow = getRemoveBackgroundWorkflow(format);
+    // Extract crop parameter from request body or query, default to true
+    const cropParam = req.body.crop ?? req.query.crop ?? true;
+    // Convert string 'false' to boolean false, everything else is truthy
+    const crop = cropParam !== 'false' && cropParam !== false;
+    
+    // Get the appropriate workflow based on crop parameter
+    const workflow = crop ? getRemoveBackgroundAndCropWorkflow(format) : getRemoveBackgroundWorkflow(format);
+    
+    // Set the appropriate target node based on workflow type
+    const targetNode = crop ? '7' : '17';
     
     // Execute the workflow
     try {
-      const result = await executeWorkflow(workflow, imageBase64, '17', 'remove-background');
+      const result = await executeWorkflow(workflow, imageBase64, targetNode, 'remove-background');
       return res.status(200).json({ 
         imageBase64: result.base64,
         promptId: result.promptId,
         jobId: result.jobId,
-        format: format
+        format: format,
+        crop: crop
       });
     } catch (workflowError) {
       console.error('Failed to process image for background removal:', workflowError);

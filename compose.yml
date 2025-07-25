@@ -1,7 +1,7 @@
 services:
   comfyui-middleware:
     container_name: orangebox_api
-    image: ghcr.io/signmaster-com/orangebox_api:latest
+    image: orangebox_api:latest
     build:
       context: .
       dockerfile: Dockerfile

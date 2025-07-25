@@ -75,7 +75,68 @@ function getRemoveBackgroundWorkflow(format = 'PNG'){
         }
     };
 }
-
+/**
+ * Remove Background workflow for removing image background and cropping to content
+ */
+function getRemoveBackgroundAndCropWorkflow(format = 'PNG'){
+    return {
+        "1": {
+            "inputs": {
+                "image": ""
+            },
+            "class_type": "ETN_LoadImageBase64",
+            "_meta": {
+                "title": "Load Image (Base64)",
+                "name" : "InputImageBase64"
+            }
+        },
+        "2": {
+            "inputs": {
+                "torchscript_jit": "default",
+                "image": [
+                    "1",
+                    0
+                ]
+            },
+            "class_type": "InspyrenetRembg",
+            "_meta": {
+                "title": "Inspyrenet Rembg"
+            }
+        },
+        "7": {
+            "inputs": {
+                "format": format,
+                "quality": 85,
+                "resize_factor": 1,
+                "compression_level": 6,
+                "save_image": true,
+                "output_prefix": "removedbg_",
+                "output_path": "",
+                "images": ["22", 0]
+            },
+            "class_type": "ImageCompressor",
+            "_meta": {
+                "title": "🐟Image Compressor - Background Removed"
+            }
+        },
+        "22": {
+            "inputs": {
+                "image": [
+                    "2",
+                    0
+                ],
+                "mask": [
+                    "2",
+                    1
+                ]
+            },
+            "class_type": "ImageCropByMask",
+            "_meta": {
+                "title": "Image Crop By Mask"
+            }
+        }
+    };
+}
 /**
  * Upscale Image workflow for enhancing images by up scaling
  */
@@ -241,6 +302,7 @@ function getUpscaleRemoveBGWorkflow(format = 'PNG'){
 // Export all workflow functions
 module.exports = {
     getRemoveBackgroundWorkflow,
+    getRemoveBackgroundAndCropWorkflow,
     getUpscaleImageWorkflow,
     getUpscaleRemoveBGWorkflow
 };

@@ -39,6 +39,11 @@ async function handleRemoveBackgroundAsync(req, res) {
       });
     }
     
+    // Extract crop parameter from request body or query, default to true
+    const cropParam = req.body.crop ?? req.query.crop ?? true;
+    // Convert string 'false' to boolean false, everything else is truthy
+    const crop = cropParam !== 'false' && cropParam !== false;
+    
     // Add job to processor queue
     const jobProcessor = getJobProcessor();
     const jobId = jobProcessor.addJob('remove-background', {
@@ -46,7 +51,8 @@ async function handleRemoveBackgroundAsync(req, res) {
       imageSize: buffer.length,
       mimeType: mimetype,
       originalFilename: req.file.originalname,
-      format: format
+      format: format,
+      crop: crop
     });
     
     // Return job ID immediately with 202 Accepted
@@ -57,7 +63,8 @@ async function handleRemoveBackgroundAsync(req, res) {
       estimated_completion_time: '30-60 seconds',
       status_url: `/api/jobs/${jobId}/status`,
       result_url: `/api/jobs/${jobId}/result`,
-      format: format
+      format: format,
+      crop: crop
     });
     
   } catch (error) {

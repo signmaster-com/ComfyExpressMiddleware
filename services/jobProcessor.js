@@ -1,7 +1,7 @@
 const { getJobManager } = require('./jobManager');
 const { getLoadBalancer } = require('./loadBalancer');
 const { executeWorkflow } = require('./comfyuiService');
-const { getRemoveBackgroundWorkflow, getUpscaleImageWorkflow, getUpscaleRemoveBGWorkflow } = require('../workflows');
+const { getRemoveBackgroundWorkflow, getRemoveBackgroundAndCropWorkflow, getUpscaleImageWorkflow, getUpscaleRemoveBGWorkflow } = require('../workflows');
 const { getMetrics } = require('./metrics');
 const { createServiceLogger, createJobLogger } = require('../utils/logger');
 const fs = require('fs').promises;
@@ -379,7 +379,24 @@ class JobProcessor {
     // Get workflow and execute
     // Check if format parameter is provided
     let workflow;
-    if (jobData.format) {
+    let targetNode = workflowConfig.targetNode;
+    
+    // Special handling for remove-background with crop parameter
+    if (job.type === 'remove-background' && jobData.crop !== undefined) {
+      const format = jobData.format || 'PNG';
+      if (jobData.crop) {
+        this.logger.debug('Using crop workflow for remove-background', {
+          jobId: job.id,
+          format: format,
+          crop: jobData.crop
+        });
+        workflow = getRemoveBackgroundAndCropWorkflow(format);
+        targetNode = '7'; // Target node for cropped workflow
+      } else {
+        workflow = getRemoveBackgroundWorkflow(format);
+        targetNode = '17'; // Target node for non-cropped workflow
+      }
+    } else if (jobData.format) {
       this.logger.debug('Using format parameter for workflow', {
         jobId: job.id,
         jobType: job.type,
@@ -390,7 +407,6 @@ class JobProcessor {
       // Default to PNG if no format specified
       workflow = workflowConfig.workflow('PNG');
     }
-    const targetNode = workflowConfig.targetNode;
 
     try {
       // Execute workflow using the existing comfyuiService
